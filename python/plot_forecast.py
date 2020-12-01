@@ -14,17 +14,7 @@ import mod_netcdf_utils as mnu
 
 _DATA_DIR = '/cluster/projects/nn9624k/wrf_init/march2017/'
 _REFDATE = dt.datetime(1900, 1, 1)
-#_IJ_RANGE = []
-
-#should be inputs
-varname = 't2m'
-dto = dt.datetime(2013,2,22)
-meshfile = os.path.join(os.getenv('NEXTSIM_MESH_DIR'), 'wrf_arctic_10km.msh')
-plot_res = 10 #km
-
-# get target grid
-gmsh = GmshMesh(meshfile)
-grid = gmsh.boundary.get_grid(resolution=plot_res*1000)
+_IJ_RANGE = [0, 160, 0, 1440]
 
 def floor_time(dto, avg_period_hours=12):
     h = avg_period_hours*(dto.hour//avg_period_hours)
@@ -39,7 +29,8 @@ def average_data(nci, varname, dto0, dto1):
     indices = [nci.datetimes.index(dto) for dto in dtimes]
     data = 0.
     for i in indices:
-        data += nci.get_var(varname, time_index=i).values/n
+        data += nci.get_var(varname,
+                time_index=i, ij_range=_IJ_RANGE).values/n
     return data.filled(np.nan)
 
 def get_averaged_data(nci, varname, avg_period_hours=12):
@@ -67,8 +58,8 @@ def plot_wind(grid, uv, dints, outdir, step=10):
     # tidy up
     ttl = 'ECMWF FC\n' + ' - '.join([
         dto.strftime('%Y-%m-%d %H:%M') for dto in dints])
-    figname = os.path.join(outdir, 'ecmwf_fc_%s.png' %(
-        '-'.join([dto.strftime('%Y%m%dT%H%M%SZ') for dto in dints])))
+    datestr = '-'.join([dto.strftime('%Y%m%dT%H%M%SZ') for dto in dints])
+    figname = os.path.join(outdir, 'ecmwf_fc_wind_%s.png' %datestr)
     ax.set_title(ttl)
 
     #fig.show()
@@ -77,44 +68,100 @@ def plot_wind(grid, uv, dints, outdir, step=10):
     fig.savefig(figname)
     plt.close()
 
-if 0:
-    #scalar field
-
-    # get source file
-    op = OpenerEra5(varname)
-    f = op.find(dto) # filename for date if it exists
-    nci = mnu.nc_getinfo(f)
-    tind = nci.datetimes.index(dto)
-    data = grid.get_netcdf_data(nci, vlist=[varname], time_index=tind)[varname]
-    fig, ax = grid.plot(data, cmap='viridis', add_landmask=False)
+def plot_scalar(grid, data, varname, outdir, dints=None):
+    fig, ax = grid.plot(data, add_landmask=False, #clim=[-10,10],
+            cmap='viridis', clabel='2-m air temperature, $^\circ$C')
     ax.coastlines(resolution='50m')
-    fig.show()
+    print(data.min(), data.max())
+
+    # tidy up
+    datestr1 = ''
+    datestr2 = ''
+    if dints is not None:
+        datestr1 = '\n' + ' - '.join([dto.strftime('%Y-%m-%d %H:M') for dto in dints])
+        datestr2 = '_' + '-'.join([dto.strftime('%Y%m%dT%H%M%SZ') for dto in dints])
+    ax.set_title(f'ECMWF FC{datestr1}')
+
+    #fig.show()
+    figname = os.path.join(outdir, f'ecmwf_fc_{varname}{datestr2}.png')
+    print(f'Saving {figname}')
+    os.makedirs(outdir, exist_ok=True)
+    fig.savefig(figname)
+    plt.close()
+
+def test_plot(grid, igi, lonlat, outdir):
+    ''' test interpolation by plotting lon, lat '''
+    #print(lonlat)
+    for varname, v in zip(['lon', 'lat'], lonlat):
+        data = igi.interp_field(v)
+        plot_scalar(grid, data, varname, outdir)
+
+#should be inputs
+dto = dt.datetime(2013,2,22)
+meshfile = os.path.join(os.getenv('NEXTSIM_MESH_DIR'), 'wrf_arctic_10km.msh')
+plot_res = 10 #km
+av_per_h = 12
+step = 10
+outdir = 'figs/ecmwf_fc'
+varnames = ['t2m']
+#varnames = ['u10', 'v10']
+
+# get target grid
+print('Getting target grid')
+gmsh = GmshMesh(meshfile)
+grid = gmsh.boundary.get_grid(resolution=plot_res*1000)
+
+# get interpolator
+print('Getting interpolator')
+t = Template(os.path.join(_DATA_DIR, 'od.ans.201302-201303.sfc.${varname}.nc'))
+f = t.safe_substitute(dict(varname=varnames[0]))
+lonlat = mnu.nc_getinfo(f).get_lonlat(ij_range=_IJ_RANGE)
+igi = grid.get_interpolator(lonlat, interp_from=False, latlon=True)
+test_plot(grid, igi, lonlat, outdir)
+
+if len(varnames) == 1:
+    #scalar field
+    varname = varnames[0]
+    print(f'Making plots for {varname}')
+    f = t.safe_substitute(dict(varname=varnames[0]))
+    for dto0, dto1, v in get_averaged_data(
+            mnu.nc_getinfo(f), varname, avg_period_hours=av_per_h):
+        if v is None:
+            continue
+        dints = (dto0, dto1)
+        print(dints)
+        print(igi.src_shape, v.shape)
+        data = igi.interp_field(v)
+        print(igi.dst_shape, data.shape)
+        data -= 273.15 #kelvin to deg C
+        os.makedirs(outdir, exist_ok=True)
+        plot_scalar(grid, data, varname, outdir, dints=dints)
 else:
     #wind
-    t = Template(os.path.join(_DATA_DIR, 'od.ans.201302-201303.sfc.${varname}.nc'))
+    print(f'Making plots for wind speed')
     pairs = []
-    av_per_h = 12
-    step = 10
-    outdir = 'figs/ecmwf_fc'
-    for varname in ['u10', 'v10']:
+    for varname in varnames:
         f = t.safe_substitute(dict(varname=varname))
         pairs += [(mnu.nc_getinfo(f), varname)]
-    igi = grid.get_interpolator(
-            pairs[0][0].get_lonlat(), interp_from=False, latlon=True)
-    for u10, v10 in zip(
+    for (dto0, dto1, u10), (_, _, v10) in zip(
             get_averaged_data(*pairs[0], avg_period_hours=av_per_h),
             get_averaged_data(*pairs[1], avg_period_hours=av_per_h)
             ):
-        print(u10[:2])
-        print(u10[2].shape)
-        print(v10[2].shape)
-        data = []
-        if u10[2] is None or v10[2] is None:
+        dints = (dto0, dto1)
+        print(dints)
+        print(u10.min())
+        print(u10.max())
+        print(v10.min())
+        print(v10.max())
+        if u10 is None or v10 is None:
             continue
-        for tup in [u10, v10]:
-            data += [igi.interp_field(tup[2])]
-        plot_wind(grid, data, u10[:2], outdir, step=step)
-    hi
+        data = [igi.interp_field(v) for v in [u10, v10]]
+        plot_wind(grid, data, dints, outdir, step=step)
+        print(data[0].min())
+        print(data[0].max())
+        print(data[1].min())
+        print(data[1].max())
+        hi
 
     for varname in ['u10', 'v10']:
         # get source file
