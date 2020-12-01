@@ -103,8 +103,8 @@ plot_res = 10 #km
 av_per_h = 12
 step = 10
 outdir = 'figs/ecmwf_fc'
-varnames = ['t2m']
-#varnames = ['u10', 'v10']
+#varnames = ['t2m']
+varnames = ['u10', 'v10']
 
 # get target grid
 print('Getting target grid')
@@ -117,7 +117,7 @@ t = Template(os.path.join(_DATA_DIR, 'od.ans.201302-201303.sfc.${varname}.nc'))
 f = t.safe_substitute(dict(varname=varnames[0]))
 lonlat = mnu.nc_getinfo(f).get_lonlat(ij_range=_IJ_RANGE)
 igi = grid.get_interpolator(lonlat, interp_from=False, latlon=True)
-test_plot(grid, igi, lonlat, outdir)
+#test_plot(grid, igi, lonlat, outdir)
 
 if len(varnames) == 1:
     #scalar field
@@ -128,14 +128,11 @@ if len(varnames) == 1:
             mnu.nc_getinfo(f), varname, avg_period_hours=av_per_h):
         if v is None:
             continue
-        dints = (dto0, dto1)
-        print(dints)
-        print(igi.src_shape, v.shape)
         data = igi.interp_field(v)
-        print(igi.dst_shape, data.shape)
-        data -= 273.15 #kelvin to deg C
+        if varname in ['t2m', 'd2m']:
+            data -= 273.15 #kelvin to deg C
         os.makedirs(outdir, exist_ok=True)
-        plot_scalar(grid, data, varname, outdir, dints=dints)
+        plot_scalar(grid, data, varname, outdir, dints=(dto0, dto1))
 else:
     #wind
     print(f'Making plots for wind speed')
@@ -148,37 +145,7 @@ else:
             get_averaged_data(*pairs[1], avg_period_hours=av_per_h)
             ):
         dints = (dto0, dto1)
-        print(dints)
-        print(u10.min())
-        print(u10.max())
-        print(v10.min())
-        print(v10.max())
         if u10 is None or v10 is None:
             continue
         data = [igi.interp_field(v) for v in [u10, v10]]
         plot_wind(grid, data, dints, outdir, step=step)
-        print(data[0].min())
-        print(data[0].max())
-        print(data[1].min())
-        print(data[1].max())
-        hi
-
-    for varname in ['u10', 'v10']:
-        # get source file
-        f = t.safe_substitute(dict(varname=varname))
-        nci = mnu.nc_getinfo(f)
-        tind = nci.datetimes.index(dto)
-        data += [grid.get_netcdf_data(nci, vlist=[varname], time_index=tind)[varname]]
-
-    spd = np.hypot(*data) 
-    fig, ax = grid.plot(spd, cmap='viridis', add_landmask=False)
-    ax.coastlines(resolution='50m')
-    x = grid.xy[0][::10,::10] 
-    y = grid.xy[1][::10,::10]
-    u = data[0][::10,::10]
-    v = data[1][::10,::10]
-    u, v = nsl.rotate_lonlat2xy(grid.projection, x, y, u, v)
-    ax.quiver(x, y, u, v, units='xy', angles='xy', color='r')
-    ax.set_title(f'ECMWF FC\n{dto.strftime("%Y-%m-%d %H:%M")}')
-    #fig.show()
-    fig.savefig('test.png')
