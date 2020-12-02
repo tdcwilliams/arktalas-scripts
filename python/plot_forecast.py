@@ -12,21 +12,8 @@ import pynextsim.lib as nsl
 
 import mod_netcdf_utils as mnu
 
-class PlotAtmosphericForcing:
-    def __init__(self):
-        #should be inputs
-        self.data_dir = '/cluster/projects/nn9624k/wrf_init/march2017/'
-        self.template = Template(os.path.join(
-            self.data_dir, 'od.ans.201302-201303.sfc.${varname}.nc'))
-        self.ij_range = [0, 160, 0, 1440]
-        self.plot_res = 10
-        self.avg_period_hours = 12
-        self.mesh_file = os.path.join(os.getenv('NEXTSIM_MESH_DIR'), 'wrf_arctic_10km.msh')
-        self.outdir = 'figs/ecmwf_fc'
-        #self.varnames = ['t2m', 'sp']
-        self.varnames = []
-        self.make_wind_plots = True
-        self.set_grid_igi()
+class PlotAtmForcing:
+    """ Base class for plotting the different forcings """
 
     @property
     def src_lonlat(self):
@@ -132,6 +119,7 @@ class PlotAtmosphericForcing:
             self.plot_scalar(data, varname)
 
     def run(self):
+        self.set_grid_igi()
         #self.test_plot()
 
         #for varname in self.varnames:
@@ -162,7 +150,3 @@ class PlotAtmosphericForcing:
                     continue
                 data = [self.igi.interp_field(v) for v in [u10, v10]]
                 self.plot_wind(data, (dto0, dto1))
-
-if __name__ == "__main__":
-    obj = PlotAtmosphericForcing()
-    obj.run()
