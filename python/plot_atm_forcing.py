@@ -127,7 +127,7 @@ class PlotAtmForcing:
         self.set_grid_igi()
         #self.test_plot()
 
-        for plot_var in self.plot_vars:
+        for plot_var in self.scalar_vars:
             #scalar fields
             varname = plot_var[0]
             print(f'Making plots for {varname}')
