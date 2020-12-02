@@ -17,7 +17,7 @@ class PlotAtmForcing:
 
     @property
     def src_lonlat(self):
-        f = self.template.safe_substitute(dict(varname='t2m'))
+        f = self.template.safe_substitute(dict(varname=self.temp_names[0]))
         return mnu.nc_getinfo(f).get_lonlat(ij_range=self.ij_range)
 
     def set_grid_igi(self):
@@ -73,7 +73,7 @@ class PlotAtmForcing:
         if dints is not None:
             datestr1 = '\n' + ' - '.join([dto.strftime('%Y-%m-%d %H:%M') for dto in dints])
             datestr2 = '_' + '-'.join([dto.strftime('%Y%m%dT%H%M%SZ') for dto in dints])
-        ax.set_title(f'ECMWF FC{datestr1}')
+        ax.set_title(f'{self.title}{datestr1}')
 
         #fig.show()
         figdir = os.path.join(self.outdir, varname)

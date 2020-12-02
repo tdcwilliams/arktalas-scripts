@@ -7,6 +7,7 @@ from plot_atm_forcing import PlotAtmForcing
 class PlotEcmwfFC(PlotAtmForcing):
     def __init__(self):
         #should be inputs
+        self.title = "ECMWF forecast"
         self.data_dir = '/cluster/projects/nn9624k/wrf_init/march2017/'
         self.template = Template(os.path.join(
             self.data_dir, 'od.ans.201302-201303.sfc.${varname}.nc'))

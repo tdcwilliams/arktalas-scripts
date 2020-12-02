@@ -8,6 +8,7 @@ from plot_atm_forcing import PlotAtmForcing
 class PlotEra5(PlotAtmForcing):
     def __init__(self):
         #should be inputs
+        self.title = 'ERA5'
         self.data_dir = '/cluster/projects/nn2993k/sim/data/ERA5'
         self.template = Template(os.path.join(
             self.data_dir, 'ERA5_${varname}_y2013.nc'))
