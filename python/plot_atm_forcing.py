@@ -51,7 +51,11 @@ class PlotAtmForcing:
     def get_averaged_data(self, nci, varname):
         delt = dt.timedelta(hours=self.avg_period_hours)
         dto0 = self.floor_time(nci.datetimes[0] , avg_period_hours=self.avg_period_hours)
+        if self.date0 is not None and dto0 < self.date0:
+            dto0 = self.date0
         dto2 = self.floor_time(nci.datetimes[-1], avg_period_hours=self.avg_period_hours)
+        if self.date1 is not None and dto2 > self.date1:
+            dto2 = self.date1
         while dto0 <= dto2:
             dto1 = dto0 + delt
             yield dto0, dto1, self.average_data(nci, varname, dto0, dto1)
@@ -144,7 +148,7 @@ class PlotAtmForcing:
             #wind
             print(f'Making plots for wind speed')
             pairs = []
-            for varname in ['u10', 'v10']:
+            for varname in self.wind_names:
                 f = self.template.safe_substitute(dict(varname=varname))
                 pairs += [(mnu.nc_getinfo(f), varname)]
             for (dto0, dto1, u10), (_, _, v10) in zip(

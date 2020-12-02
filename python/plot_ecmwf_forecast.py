@@ -1,16 +1,6 @@
 #! /usr/bin/env python
 import os
-import numpy as np
 from string import Template
-import datetime as dt
-from matplotlib import pyplot as plt
-
-from pynextsim.gmshlib import GmshMesh
-from pynextsim.gridding import Grid
-from pynextsim.openers import OpenerVariable, Opener
-import pynextsim.lib as nsl
-
-import mod_netcdf_utils as mnu
 
 from plot_atm_forcing import PlotAtmForcing
 
@@ -24,13 +14,16 @@ class PlotEcmwfFC(PlotAtmForcing):
         self.plot_res = 10
         self.avg_period_hours = 12
         self.mesh_file = os.path.join(os.getenv('NEXTSIM_MESH_DIR'), 'wrf_arctic_10km.msh')
-        self.outdir = 'figs/ecmwf_fc'
+        self.outdir = 'figs/forcing/ecmwf_fc'
         self.scalar_vars = [
                 ('t2m', [-40,0], '2-m air temperature, $^\circ$C'),
                 #('sp', None, 'Sea level air pressure, Pa'),
                 ]
         self.temp_names = ['t2m', 'd2m']
+        self.wind_names = ['u10', 'v10']
         self.make_wind_plots = True
+        self.date0 = None
+        self.date1 = None
 
 if __name__ == "__main__":
     obj = PlotEcmwfFC()
