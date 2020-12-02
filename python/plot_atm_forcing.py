@@ -57,9 +57,10 @@ class PlotAtmForcing:
             yield dto0, dto1, self.average_data(nci, varname, dto0, dto1)
             dto0 = dto1
 
-    def plot_scalar(self, varname, dints=None):
-        fig, ax = self.grid.plot(data, add_landmask=False, #clim=[-10,10],
-                cmap='viridis', clabel='2-m air temperature, $^\circ$C')
+    def plot_scalar(self, data, plot_var, dints=None):
+        varname, clim, clabel = plot_var
+        fig, ax = self.grid.plot(data, add_landmask=False, clim=clim,
+                cmap='viridis', clabel=clabel)
         ax.coastlines(resolution='50m')
         print(data.min(), data.max())
 
@@ -114,13 +115,18 @@ class PlotAtmForcing:
     def test_plot(self):
         ''' test interpolation by plotting lon, lat '''
         #print(lonlat)
-        for varname, v in zip(['lon', 'lat'], self.src_lonlat):
-            data = self.igi.interp_field(v)
-            self.plot_scalar(data, varname)
+        plot_vars = [
+                ('lon', None, 'Longitude, $^\circ$E'),
+                ('lat', None, 'Latitude, $^\circ$N'),
+                ]
+        for v, arr in zip(plot_vars, self.src_lonlat):
+            data = self.igi.interp_field(arr)
+            self.plot_scalar(data, v)
 
     def run(self):
         self.set_grid_igi()
-        #self.test_plot()
+        self.test_plot()
+        hi
 
         #for varname in self.varnames:
         #    #scalar fields

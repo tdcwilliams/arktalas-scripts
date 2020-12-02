@@ -27,6 +27,7 @@ class PlotEcmwfFC(PlotAtmForcing):
         self.outdir = 'figs/ecmwf_fc'
         #self.varnames = ['t2m', 'sp']
         self.varnames = []
+        self.temp_names = ['t2m', 'd2m']
         self.make_wind_plots = True
 
 if __name__ == "__main__":
