@@ -68,7 +68,7 @@ class PlotAtmForcing:
         datestr1 = ''
         datestr2 = ''
         if dints is not None:
-            datestr1 = '\n' + ' - '.join([dto.strftime('%Y-%m-%d %H:M') for dto in dints])
+            datestr1 = '\n' + ' - '.join([dto.strftime('%Y-%m-%d %H:%M') for dto in dints])
             datestr2 = '_' + '-'.join([dto.strftime('%Y%m%dT%H%M%SZ') for dto in dints])
         ax.set_title(f'ECMWF FC{datestr1}')
 
@@ -119,27 +119,27 @@ class PlotAtmForcing:
                 ('lon', None, 'Longitude, $^\circ$E'),
                 ('lat', None, 'Latitude, $^\circ$N'),
                 ]
-        for v, arr in zip(plot_vars, self.src_lonlat):
+        for plot_var, arr in zip(plot_vars, self.src_lonlat):
             data = self.igi.interp_field(arr)
-            self.plot_scalar(data, v)
+            self.plot_scalar(data, plot_var)
 
     def run(self):
         self.set_grid_igi()
-        self.test_plot()
-        hi
+        #self.test_plot()
 
-        #for varname in self.varnames:
-        #    #scalar fields
-        #    print(f'Making plots for {varname}')
-        #    f = self.template.safe_substitute(dict(varname=varname))
-        #    for dto0, dto1, v in self.get_averaged_data(
-        #            mnu.nc_getinfo(f), varname)
-        #        if v is None:
-        #            continue
-        #        data = self.igi.interp_field(v)
-        #        if varname in ['t2m', 'd2m']:
-        #            data -= 273.15 #kelvin to deg C
-        #        self.plot_scalar(data, varname, dints=(dto0, dto1))
+        for plot_var in self.plot_vars:
+            #scalar fields
+            varname = plot_var[0]
+            print(f'Making plots for {varname}')
+            f = self.template.safe_substitute(dict(varname=varname))
+            for dto0, dto1, v in self.get_averaged_data(
+                    mnu.nc_getinfo(f), varname):
+                if v is None:
+                    continue
+                data = self.igi.interp_field(v)
+                if varname in self.temp_names:
+                    data -= 273.15 #kelvin to deg C
+                self.plot_scalar(data, plot_var, dints=(dto0, dto1))
 
         if self.make_wind_plots:
             #wind

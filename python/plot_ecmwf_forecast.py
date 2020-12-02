@@ -25,8 +25,10 @@ class PlotEcmwfFC(PlotAtmForcing):
         self.avg_period_hours = 12
         self.mesh_file = os.path.join(os.getenv('NEXTSIM_MESH_DIR'), 'wrf_arctic_10km.msh')
         self.outdir = 'figs/ecmwf_fc'
-        #self.varnames = ['t2m', 'sp']
-        self.varnames = []
+        self.plot_vars = [
+                ('t2m', [-40,0], '2-m air temperature, $^\circ$C'),
+                ('sp', None, 'Sea level air pressure, Pa'),
+                ]
         self.temp_names = ['t2m', 'd2m']
         self.make_wind_plots = True
 
