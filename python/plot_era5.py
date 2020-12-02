@@ -17,6 +17,7 @@ class PlotEra5(PlotAtmForcing):
         self.avg_period_hours = 12
         self.mesh_file = os.path.join(os.getenv('NEXTSIM_MESH_DIR'), 'wrf_arctic_10km.msh')
         self.outdir = 'figs/forcing/era5'
+        self.output_prefix = 'era5_'
         self.scalar_vars = [
                 ('t2m', [-40,0], '2-m air temperature, $^\circ$C'),
                 ]

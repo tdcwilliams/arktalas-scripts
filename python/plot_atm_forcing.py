@@ -77,7 +77,7 @@ class PlotAtmForcing:
 
         #fig.show()
         figdir = os.path.join(self.outdir, varname)
-        figname = os.path.join(figdir, f'ecmwf_fc_{varname}{datestr2}.png')
+        figname = os.path.join(figdir, f'{self.output_prefix}{varname}{datestr2}.png')
         print(f'Saving {figname}')
         os.makedirs(figdir, exist_ok=True)
         fig.savefig(figname)
@@ -104,10 +104,10 @@ class PlotAtmForcing:
         # tidy up
         datestr = '\n' + ' - '.join([
             dto.strftime('%Y-%m-%d %H:%M') for dto in dints])
-        ax.set_title(f'ECMWF FC{datestr}')
+        ax.set_title(f'{self.title}{datestr}')
         datestr = '_' + '-'.join([dto.strftime('%Y%m%dT%H%M%SZ') for dto in dints])
         figdir = os.path.join(self.outdir, 'wind')
-        figname = os.path.join(figdir, f'ecmwf_fc_wind{datestr}.png')
+        figname = os.path.join(figdir, f'{self.output_prefix}wind{datestr}.png')
 
         #fig.show()
         print(f'Saving {figname}')
