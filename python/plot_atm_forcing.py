@@ -62,7 +62,6 @@ class PlotAtmForcing:
         fig, ax = self.grid.plot(data, add_landmask=False, clim=clim,
                 cmap='viridis', clabel=clabel)
         ax.coastlines(resolution='50m')
-        print(data.min(), data.max())
 
         # tidy up
         datestr1 = ''
