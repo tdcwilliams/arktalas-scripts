@@ -44,6 +44,8 @@ class PlotAtmForcing:
             opts['mesh_file'])
         self.scalar_vars = []
         svars = opts['scalar_vars']
+        if svars == 'None':
+            return
         if isinstance(svars, str):
             svars = [svars]
         for s in svars:
@@ -64,7 +66,7 @@ class PlotAtmForcing:
 
     @property
     def src_lonlat(self):
-        f = self.template.safe_substitute(dict(varname=self.temp_names[0]))
+        f = self.template.safe_substitute(dict(varname=self.wind_names[0]))
         return mnu.nc_getinfo(f).get_lonlat(ij_range=self.ij_range)
 
     def set_grid_igi(self):
