@@ -4,16 +4,63 @@ import numpy as np
 from string import Template
 import datetime as dt
 from matplotlib import pyplot as plt
+import argparse
 
 from pynextsim.gmshlib import GmshMesh
 from pynextsim.gridding import Grid
-from pynextsim.openers import OpenerVariable, Opener
+from pynextsim.nextsim_config import NextsimConfig
 import pynextsim.lib as nsl
 
 import mod_netcdf_utils as mnu
 
 class PlotAtmForcing:
     """ Base class for plotting the different forcings """
+
+    def __init__(self, cli=None):
+        #should be inputs
+        args = self.parse_args(cli)
+        opts = NextsimConfig(args.config_file)['plot_atm_forcing']
+        for att, f_cvt in [
+                ('title', str),
+                ('data_dir', str),
+                ('ij_range', lambda x : [int(i) for i in x.split()]),
+                ('plot_res', float),
+                ('avg_period_hours', int),
+                ('outdir', str),
+                ('output_prefix', str),
+                ('temp_names', lambda x : x.split()),
+                ('wind_names', lambda x : x.split()),
+                ('make_wind_plots', nsl.valid_bool),
+                ('date0', nsl.valid_date),
+                ('date1', nsl.valid_date),
+                ]:
+            setattr(self, att, None)
+            if opts[att] != 'None':
+                setattr(self, att, f_cvt(opts[att]))
+
+        self.template = Template(os.path.join(
+            self.data_dir, opts['basename_template']))
+        self.mesh_file = os.path.join(os.getenv('NEXTSIM_MESH_DIR'),
+            opts['mesh_file'])
+        self.scalar_vars = []
+        svars = opts['scalar_vars']
+        if isinstance(svars, str):
+            svars = [svars]
+        for s in svars:
+            svar = s.split()
+            varname, vmin, vmax = svar[:3]
+            clabel = ' '.join(svar[3:])
+            clim = None
+            if vmin != 'None' and vmax != 'None':
+                clim = [float(vmin), float(vmax)]
+            self.scalar_vars += [(varname, clim, clabel)]
+
+    @staticmethod
+    def parse_args(cli=None):
+        parser = argparse.ArgumentParser("script to plot atmospheric forcing")
+        parser.add_argument('config_file', type=str,
+                help='path to config file with input settings')
+        return parser.parse_args(cli)
 
     @property
     def src_lonlat(self):
@@ -159,3 +206,7 @@ class PlotAtmForcing:
                     continue
                 data = [self.igi.interp_field(v) for v in [u10, v10]]
                 self.plot_wind(data, (dto0, dto1))
+
+if __name__ == '__main__':
+    obj = PlotAtmForcing()
+    obj.run()
