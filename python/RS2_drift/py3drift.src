@@ -1,0 +1,6 @@
+#! /bin/bash
+git_repos=$HOME/Github-Repos
+export PYTHONPATH=$PYTHONPATH:$git_repos/nansat:$git_repos/sea_ice_drift
+conda acivate py3drift
+alias cdap="cd $git_repos/arktalas-scripts/python"
+
