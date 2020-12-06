@@ -34,7 +34,7 @@ outfile = 'out/RS2_pairs.csv'
 print(f'Saving {len(pairs)} pairs to {outfile}')
 maxdiff = 0
 with open(outfile, 'w') as f:
-    f.write('File1,File2\n')
+    f.write('File1,File2,"Time interval, days"\n')
     for f1, f2, diff in pairs:
         f.write(f'{f1},{f2},{diff}\n')
         maxdiff = np.max([maxdiff, diff])
