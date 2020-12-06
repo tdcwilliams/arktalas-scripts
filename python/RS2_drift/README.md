@@ -29,3 +29,7 @@ Until gdal fix is merged checkout this branch:
 ```
 git checkout issue24-gdal
 ```
+
+# Match scenes that are close enough in time
+`./01_match_scenes.py`
+Saves results to `out/RS2_pairs.csv`.
