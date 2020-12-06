@@ -30,7 +30,7 @@ for i, f1 in enumerate(filelist[:-1]):
         pairs += filtered_pair(f1, f2)
 
 # save the pairs to file
-outfile = 'RS2_pairs.csv'
+outfile = 'out/RS2_pairs.csv'
 print(f'Saving {len(pairs)} pairs to {outfile}')
 maxdiff = 0
 with open(outfile, 'w') as f:
