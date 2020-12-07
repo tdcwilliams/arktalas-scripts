@@ -4,7 +4,7 @@ import glob
 import datetime as dt
 import numpy as np
 
-_DATA_DIR = os.path.join(os.getenv('HOME'), 'docker_io/RS2_beaufort_2013/')
+_DATA_DIR = os.getenv('RS2_dir')
 _DAYS_IN_SEC = 24*3600
 _THRESH = 3.1 # days: 3 -> 249 pairs (max=2.93, 2d 22h 19min); 3.1 -> 271 pairs (max=3.08, 3d 1h 55min)
 
@@ -30,6 +30,7 @@ for i, f1 in enumerate(filelist[:-1]):
         pairs += filtered_pair(f1, f2)
 
 # save the pairs to file
+os.makedirs('out', exist_ok=True)
 outfile = 'out/RS2_pairs.csv'
 print(f'Saving {len(pairs)} pairs to {outfile}')
 maxdiff = 0

@@ -1,6 +1,15 @@
 #! /bin/bash
 git_repos=$HOME/Github-Repos
-export MOD44WPATH=$HOME/Data/modis_250m_watermask
-export PYTHONPATH=$PYTHONPATH:$git_repos/nansat:$git_repos/sea_ice_drift
+export PYTHONPATH=$PYTHONPATH:$git_repos/nansat:
+export PYTHONPATH=$PYTHONPATH:$git_repos/sea_ice_drift
+export PYTHONPATH=$PYTHONPATH:$git_repos/py-thesaurus-interface
 conda activate py3drift
 alias cdap="cd $git_repos/arktalas-scripts/python"
+
+# Data
+# land mask
+export MOD44WPATH=$HOME/Data/modis_250m_watermask
+# RS2_Beaufort
+export RS2_dir=$HOME/Data/RS2_beaufort_2013
+# S1B (to test sea_ice_drift)
+export S1B_dir=$HOME/Data/S1B
