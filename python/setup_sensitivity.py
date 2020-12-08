@@ -90,7 +90,7 @@ class LaunchSensitivity:
             os.makedirs(subdir, exist_ok=True)
         # set the nextsim options
         opts = self.configs[i]
-        print(f'Setting up {edir} with options:')
+        print(f'\nSetting up {edir}\nwith options:')
         print(json.dumps(opts, indent=4))
         cfg = os.path.join(edir, 'inputs', 'nextsim.cfg')
         with open(cfg, 'w') as fid:
