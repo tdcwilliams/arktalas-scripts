@@ -6,7 +6,7 @@ Put the files in `$RS2_dir`.
 ```
 conda create -q --yes -n py3drift -c conda-forge python=3.6 numpy scipy matplotlib \
       netcdf4 cartopy gdal opencv \
-      pandas pyyaml requests xdg \
+      pandas pyyaml requests xdg pyproj \
       nose ipython jupyter mock \
 && conda activate py3drift
 ```
