@@ -24,7 +24,6 @@ class LaunchSensitivity:
         self.executable = args.executable
         self.parse_config_file(args.config_file)
         self.ns_config_file = args.ns_config_file
-        self.no_launch = args.no_launch
         self.today = dt.datetime.today().strftime('%Y%m%d')
 
     @staticmethod
@@ -49,8 +48,6 @@ class LaunchSensitivity:
                 help='reference nextsim cfg file')
         parser.add_argument('executable', type=str,
                 help='path to nextsim executable')
-        parser.add_argument('-nl', '--no-launch', action='store_true',
-                help='reference nextsim cfg file')
         return parser.parse_args(cli)
 
     def parse_config_file(self, config_file):
@@ -73,7 +70,6 @@ class LaunchSensitivity:
             values += [sp[1:]]
         for vals in itertools.product(*values):
             self.configs += [dict(zip(params, vals))]
-        print(self.configs)
 
     def write_ns_config(self, opts, fid):
         nc = NextsimConfig(self.ns_config_file)
@@ -84,18 +80,18 @@ class LaunchSensitivity:
                 nc[sec] = d
             else:
                 nc[sec].update(d)
-        #print(json.dumps(nc, indent=4))
         nc.write(fid)
 
     def setup_expt(self, i):
         istr = '%.2i' %i
         edir = os.path.join(self.root_dir, self.today, f'expt_{istr}')
-        print(f'Setting up {edir}')
         for n in ['inputs', 'tmp', 'logs']:
             subdir = os.path.join(edir, n)
             os.makedirs(subdir, exist_ok=True)
         # set the nextsim options
         opts = self.configs[i]
+        print(f'Setting up {edir} with options:')
+        print(json.dumps(opts, indent=4))
         cfg = os.path.join(edir, 'inputs', 'nextsim.cfg')
         with open(cfg, 'w') as fid:
             self.write_ns_config(opts, fid)
@@ -110,19 +106,9 @@ class LaunchSensitivity:
         shutil.copyfile(self.executable, exe)
         return edir
 
-    def launch_expt(self, edir):
-        if self.no_launch:
-            return
-        pwd = os.getcwd()
-        os.chdir(edir)
-        cmd = ['sbatch', 'inputs/slurm.sh']
-        print(' '.join(cmd))
-        subprocess.run(cmd)
-        os.chdir(pwd)
-
     def run(self):
         for i in range(len(self.configs)):
-            self.launch_expt(self.setup_expt(i))
+            self.setup_expt(i)
 
 if __name__ == '__main__':
     obj = LaunchSensitivity()
