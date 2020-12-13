@@ -7,8 +7,7 @@
 #SBATCH --ntasks=%%{num_tasks}
 #SBATCH --cpus-per-task=1
 #%%{qos_line}
-##SBATCH --partition=bigmem
-##SBATCH --mem-per-cpu=4G
+#%%{bigmem_line}
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%%{email}
 

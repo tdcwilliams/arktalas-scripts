@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import stat
 import glob
 import shutil
 import argparse
@@ -107,6 +108,8 @@ class LaunchSensitivity:
         # get executable
         exe = os.path.join(edir, 'tmp', 'nextsim.exec')
         shutil.copyfile(self.executable, exe)
+        new_mode = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH # chmod +x
+        os.chmod(exe, os.stat(exe).st_mode | new_mode)
         return edir
 
     def run(self):
