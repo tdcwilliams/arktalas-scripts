@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import glob
 import shutil
 import argparse
 import numpy as np
@@ -21,10 +22,11 @@ class LaunchSensitivity:
 
     def __init__(self, cli=None):
         args = self.parse_args(cli)
+        self.root_dir = args.root_dir
+        self.batch_name = args.batch_name
         self.executable = args.executable
         self.parse_config_file(args.config_file)
         self.ns_config_file = args.ns_config_file
-        self.today = dt.datetime.today().strftime('%Y%m%d')
 
     @staticmethod
     def parse_args(cli=None):
@@ -41,7 +43,9 @@ class LaunchSensitivity:
             list of command line inputs
         '''
         parser = argparse.ArgumentParser(
-                description="Generate PNG plots from results of forecasting for given variables")
+                description="Setup nextsim sensitivity experiments")
+        parser.add_argument('root_dir', type=str, help='root dir where experiments will be run')
+        parser.add_argument('batch_name', type=str, help='name to give batch of experiments')
         parser.add_argument('config_file', type=str,
                 help='cfg file with parameters to test')
         parser.add_argument('ns_config_file', type=str,
@@ -55,7 +59,6 @@ class LaunchSensitivity:
         # init slurm options
         self.slurm_opts = nc['slurm']
         opts = nc['launch_sensitivity']
-        self.root_dir = opts['root_dir']
         self.slurm_template = opts['slurm_template']
         # init sensitivity runs
         sopts = opts['sensitivity']
@@ -82,9 +85,9 @@ class LaunchSensitivity:
                 nc[sec].update(d)
         nc.write(fid)
 
-    def setup_expt(self, i):
-        istr = '%.2i' %i
-        edir = os.path.join(self.root_dir, self.today, f'expt_{istr}')
+    def setup_expt(self, i, i0):
+        istr = '%.3i' %(i + i0)
+        edir = os.path.join(self.root_dir, f'expt_{istr}')
         for n in ['inputs', 'tmp', 'logs']:
             subdir = os.path.join(edir, n)
             os.makedirs(subdir, exist_ok=True)
@@ -98,7 +101,7 @@ class LaunchSensitivity:
         # get slurm template
         t = CustomTemplate(self.slurm_template)
         scr = os.path.join(edir, 'inputs', 'slurm.sh')
-        opts = dict(**self.slurm_opts, job_name=f'sens_{self.today}_{istr}')
+        opts = dict(**self.slurm_opts, job_name=f'sens_{self.batch_name}_{istr}')
         with open(scr, 'w') as fid:
             fid.write(t.substitute(opts))
         # get executable
@@ -107,8 +110,21 @@ class LaunchSensitivity:
         return edir
 
     def run(self):
-        for i in range(len(self.configs)):
-            self.setup_expt(i)
+        os.makedirs(self.root_dir, exist_ok=True)
+        runlist = os.path.join(self.root_dir, f'{self.batch_name}.csv')
+        i0 = 0
+        dlist = sorted(glob.glob(os.path.join(self.root_dir, 'expt_???')))
+        if len(dlist) > 0:
+            i0 = int(dlist[-1][-3:]) + 1
+        with open(runlist, 'w') as fid:
+            for i in range(len(self.configs)):
+                edir = self.setup_expt(i, i0)
+                if i == 0:
+                    names = ['\"Experiment Directory\"'] + list(self.configs[i])
+                    fid.write(','.join(names) + '\n')
+                values = [os.path.basename(edir)] + list(self.configs[i].values())
+                fid.write(','.join(values) + '\n')
+        print(f"Saved experiment summary to {runlist}")
 
 if __name__ == '__main__':
     obj = LaunchSensitivity()

@@ -6,7 +6,7 @@
 #SBATCH --nodes=%%{num_nodes}
 #SBATCH --ntasks=%%{num_tasks}
 #SBATCH --cpus-per-task=1
-#SBATCH --qos=%%{qos}
+#%%{qos_line}
 ##SBATCH --partition=bigmem
 ##SBATCH --mem-per-cpu=4G
 #SBATCH --mail-type=ALL
