@@ -81,74 +81,47 @@ fi
 
 if [ $DO_CS2SMOS -eq 1 ]
 then
-   smoothing="-sig 1"
-   CMD="evaluate_forecast.py $inputs $smoothing -s Cs2SmosThick -mm $MOORINGS_MASK"
-   LIMS=("-d1 20130430" "-d0 20131015")
-   SKIP=(05 06 07 08 09) #skip averages of "summer" months
-   odir="$FCDIR/eval-cs2smos"
-   [[ $MONTHLY_EVAL -eq 1 ]] \
-       && take_monthly_averages "$odir" \
-       || do_standard_run "$odir"
+    smoothing="-sig 1"
+    CMD="evaluate_forecast.py $inputs $smoothing -s Cs2SmosThick -mm $MOORINGS_MASK"
+    LIMS=("-d1 20130430" "-d0 20131015")
+    SKIP=(05 06 07 08 09) #skip averages of "summer" months
+    odir="$FCDIR/eval-cs2smos"
+    [[ $MONTHLY_EVAL -eq 1 ]] \
+        && take_monthly_averages "$odir" \
+        || do_standard_run "$odir"
 fi
 
 if [ $DO_OSISAF -eq 1 ]
 then
-   smoothing="-sig 2"
-   CMD="evaluate_forecast.py $inputs $smoothing -s OsisafConc -mm $MOORINGS_MASK"
-   LIMS=("")
-   SKIP=() #don't skip any monthly averages
-   odir="$FCDIR/eval-osisaf-conc"
-   [[ $MONTHLY_EVAL -eq 1 ]] \
-       && take_monthly_averages "$odir" || \
-       do_standard_run "$odir"
-
-   # blend AMSR2
-   CMD+=" -b"
-   odir="$FCDIR/eval-osisaf-amsr2-conc"
-   [[ $MONTHLY_EVAL -eq 1 ]] \
-       && take_monthly_averages "$odir" || \
-       do_standard_run "$odir"
-
-   # extent
-   CMD="evaluate_forecast.py $inputs $smoothing -s OsisafConc -ee -mm $MOORINGS_MASK"
-   odir=$FCDIR/eval-osisaf-extent
-   [[ $MONTHLY_EVAL -eq 1 ]] && CMD+=" -nm" # don't need maps
-   [[ $MONTHLY_EVAL -eq 1 ]] \
-       && take_monthly_averages "$odir" \
-       || do_standard_run "$odir"
-
-   # blend AMSR2
-   CMD+=" -b"
-   odir="$FCDIR/eval-osisaf-amsr2-extent"
-   [[ $MONTHLY_EVAL -eq 1 ]] \
-       && take_monthly_averages "$odir" || \
-       do_standard_run "$odir"
+    smoothing="-sig 2"
+    CMD="evaluate_forecast.py $inputs $smoothing -s OsisafConc -mm $MOORINGS_MASK"
+    LIMS=("")
+    SKIP=() #don't skip any monthly averages
+    odir="$FCDIR/eval-osisaf-conc"
+    [[ $MONTHLY_EVAL -eq 1 ]] \
+        && take_monthly_averages "$odir" || \
+        do_standard_run "$odir"
+    
+    # extent
+    CMD="evaluate_forecast.py $inputs $smoothing -s OsisafConc -ee -mm $MOORINGS_MASK"
+    odir=$FCDIR/eval-osisaf-extent
+    [[ $MONTHLY_EVAL -eq 1 ]] && CMD+=" -nm" # don't need maps
+    [[ $MONTHLY_EVAL -eq 1 ]] \
+        && take_monthly_averages "$odir" \
+        || do_standard_run "$odir"
 fi
 
 if [ $DO_DRIFT -eq 1 ]
 then
-   inputs_drift="$fcdir -mu 2.5"
-   #inputs_drift+=" -f"
-   #inputs_drift="$FCDIR -np -g medium_arctic_10km.msh"
-   CMD="evaluate_drift_forecast.py $inputs_drift -mm $MOORINGS_MASK"
-   LIMS=("-d1 20130430") # finish 1st eval round after 2019-04
-   LIMS+=("-d0 20131001") # start 2nd eval round at 2019-10
-   SKIP=(05 06 07 08 09) #skip averages of "summer" months
-   odir="$FCDIR/eval-osisaf-drift"
-   [[ $MONTHLY_EVAL -eq 1 ]] \
-       && take_monthly_averages "$odir" \
-       || do_standard_run "$odir"
-
-   inputs_drift="$fcdir -mu 20"
-   #inputs_drift+=" -f"
-   #inputs_drift="$FCDIR -np -g medium_arctic_10km.msh"
-   CMD="evaluate_drift_forecast.py $inputs_drift -mm $MOORINGS_MASK"
-   LIMS=("")
-   SKIP=() #include "summer" months
-   odir="$FCDIR/eval-osisaf-drift-mu10kpd"
-   [[ $MONTHLY_EVAL -eq 1 ]] \
-       && take_monthly_averages "$odir" \
-       || do_standard_run "$odir"
+    # no uncertainty info for 2013
+    CMD="evaluate_drift_forecast.py $fcdir -mm $MOORINGS_MASK"
+    LIMS=("-d1 20130430") # finish 1st eval round after 2013-04
+    LIMS+=("-d0 20131015") # start 2nd eval round after 2013-10
+    SKIP=() #skip averages of "summer" months
+    odir="$FCDIR/eval-osisaf-drift"
+    [[ $MONTHLY_EVAL -eq 1 ]] \
+        && take_monthly_averages "$odir" \
+        || do_standard_run "$odir"
 fi
 
 if [ $DO_PLOTS -eq 1 ]
@@ -160,22 +133,22 @@ fi
 
 if [ $DO_SMOS -eq 1 ]
 then
-   smoothing="-sf 0.5"
-   #smoothing="-sig 1"
-   CMD="evaluate_forecast.py $inputs -nb 1 $smoothing -s SmosThick -mm $MOORINGS_MASK"
-   LIMS=("-d1 20190430" "-d0 20191015")
-   SKIP=(05 06 07 08 09) #skip averages of "summer" months
-   [[ $MONTHLY_EVAL -eq 1 ]] \
-       && take_monthly_averages "$FCDIR/eval-smos" \
-       || do_standard_run "$FCDIR/eval-smos"
+    smoothing="-sf 0.5"
+    #smoothing="-sig 1"
+    CMD="evaluate_forecast.py $inputs -nb 1 $smoothing -s SmosThick -mm $MOORINGS_MASK"
+    LIMS=("-d1 20130430" "-d0 20131015")
+    SKIP=(05 06 07 08 09) #skip averages of "summer" months
+    [[ $MONTHLY_EVAL -eq 1 ]] \
+        && take_monthly_averages "$FCDIR/eval-smos" \
+        || do_standard_run "$FCDIR/eval-smos"
 fi
 
 if [ $DO_AMSR2 -eq 1 ]
 then
-   CMD="evaluate_forecast.py $inputs -s Amsr2Conc -mm $MOORINGS_MASK"
-   LIMS=("")
-   SKIP=() #don't skip any monthly averages
-   [[ $MONTHLY_EVAL -eq 1 ]] \
-       && take_monthly_averages "$FCDIR/eval-amsr2" \
-       || do_standard_run "$FCDIR/eval-amsr2"
+    CMD="evaluate_forecast.py $inputs -s Amsr2Conc -mm $MOORINGS_MASK"
+    LIMS=("")
+    SKIP=() #don't skip any monthly averages
+    [[ $MONTHLY_EVAL -eq 1 ]] \
+        && take_monthly_averages "$FCDIR/eval-amsr2" \
+        || do_standard_run "$FCDIR/eval-amsr2"
 fi
