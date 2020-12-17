@@ -18,7 +18,7 @@ MOORINGS_MASK=${3-Moorings.nc}
 # loop over all the dirs in the .csv file
 # and put them through eval_wrapper_1dir.sh
 [[ ! -f $RUNLIST ]] && { echo $RUNLIST not found; exit 1; }
-runlist=($(cat $RUNLIST))
+runlist=($(cat $RUNLIST |grep -v Experiment))
 rootdir=$(dirname $RUNLIST)
 for run in "${runlist[@]}"
 do
@@ -26,6 +26,5 @@ do
     run_=${run#*,}
     n_=${#run_}
     edir=$rootdir/${run:0:$((n-n_-1))}
-    [[ "$edir" == "Experiment Directory" ]] && continue
     ./eval_wrapper_1dir.sh $edir $STEP $MOORINGS_MASK
 done
