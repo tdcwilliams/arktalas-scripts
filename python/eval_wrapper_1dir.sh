@@ -26,3 +26,4 @@ fi
 [[ $STEP -eq 1 ]] && monthly_eval=1
 [[ $STEP -eq 2 ]] && monthly_eval=0
 ./eval_freerun.sh $INDIR $monthly_eval $MOORINGS_MASK 1 1 1
+exit $?
