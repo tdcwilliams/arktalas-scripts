@@ -19,7 +19,7 @@ MOORINGS_MASK=${3-"Moorings.nc"}
 if [[ $STEP -eq 3 ]]
 then
     singularity exec --cleanenv $PYNEXTSIM_SIF \
-        ./collect_maps.sh $INDIR
+        ./collect_maps_pylatex.py $INDIR
     exit $?
 fi
 
