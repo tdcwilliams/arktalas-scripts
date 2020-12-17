@@ -15,11 +15,8 @@ RUNLIST=$1
 STEP=$2
 MOORINGS_MASK=${3-Moorings.nc}
 
-[[ $STEP -eq 1 ]] && monthly_eval=1
-[[ $STEP -eq 2 ]] && monthly_eval=1
-[[ $STEP -eq 3 ]] && \
-    collect="singularity exec --cleanenv $PYNEXTSIM_SIF ./collect_maps.sh"
-
+# loop over all the dirs in the .csv file
+# and put them through eval_wrapper_1dir.sh
 [[ ! -f $RUNLIST ]] && { echo $RUNLIST not found; exit 1; }
 runlist=($(cat $RUNLIST))
 for run in "${runlist[@]}"
@@ -29,6 +26,5 @@ do
     n_=${#run_}
     edir=$ROOT_DIR/${run:0:$((n-n_-1))}
     [[ "$edir" == "Experiment Directory" ]] && continue
-    [[ $STEP -eq 3 ]] && $collect $edir && continue
-    ./eval_freerun.sh $edir $monthly_eval $MOORINGS_MASK 1 1 1
+    ./eval_wrapper_1dir.sh $edir $STEP $MOORINGS_MASK
 done
