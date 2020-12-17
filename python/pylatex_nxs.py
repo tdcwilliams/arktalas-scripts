@@ -1,3 +1,4 @@
+#! /usr/bin/python
 import os
 import glob
 import datetime as dt
