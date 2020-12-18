@@ -55,7 +55,10 @@ class EvalPDF(Document):
     def __init__(self, root_dir, **kwargs):
         super().__init__(**kwargs)
         self.root_dir = os.path.abspath(root_dir)
-        self.pdf_file = os.path.join(root_dir, 'collected_maps')
+        #add something to distinguish the name when comparing files in the same window of a PDF
+        #reader
+        subdir = os.path.basename(root_dir)
+        self.pdf_file = os.path.join(root_dir, f'collected_maps_{subdir}')
 
     def parse_filename(self, figname):
         name1, name2 = os.path.split(figname)[1].split('-')
@@ -122,7 +125,7 @@ class EvalPDF(Document):
     def intro(self):
         for cmd in [
                 Command('maketitle'),
-                Command('tableofcontents'),
+                #Command('tableofcontents'),
                 ]:
             self.append(cmd)
 
@@ -141,7 +144,7 @@ class EvalPDF(Document):
                 self.add_maps(eval_dir)
             self.append(Command('pagebreak'))
         print(f'Creating {self.pdf_file}.pdf')
-        self.generate_pdf(self.pdf_file, clean_tex=False)
+        self.generate_pdf(self.pdf_file, clean_tex=True)
 
 if __name__ == "__main__":
     args = parse_args()
