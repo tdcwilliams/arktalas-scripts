@@ -370,8 +370,6 @@ def run():
             names=["File1","File2","Interval","Overlap"], skiprows=1,
             dtype={"File1":str, "File2":str, "Interval":float, "Overlap":float})
     for index, (f1,  f2, interval, overlap) in df.iterrows():
-        if index != 26:
-            continue
         print(f'Processing pair {index} out of {len(df)}')
         print(f1, f2, sep='\n')
         print(f'Overlap = {overlap}')
