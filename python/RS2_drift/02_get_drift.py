@@ -37,6 +37,95 @@ LAND_50M = cfeature.NaturalEarthFeature('physical', 'land', '50m',
 # threshold on quality = rpm*hpm
 QTHRESH = 3.5
 
+def get_deformation_elems(x, y, u, v, a):
+    """ Compute deformation for given elements.
+    Input X, Y, U, V are organized in three columns: for each node of M elements.
+    To convert deformation rates from 1/s to %/day outputs should be multiplied by 8640000.
+    Parameters
+    ----------
+    x : 3xM ndarray
+        X-coordinates of nodes, m
+    y : 3xM ndarray
+        Y-coordinates of nodes, m
+    u : 3xM ndarray
+        U-component of nodes, m/s
+    v : 3xM ndarray
+        V-component of nodes, m/s
+    a : Mx1 ndarray
+        area of elements, m2
+    Returns
+    -------
+    e1 : Mx1 array
+        Divergence, 1/s
+    e2 : Mx1 array
+        Shear, 1/s
+    e3 : Mx1 array
+        Total deformation, 1/s
+    """
+    # contour integrals of u and v [m/s * m ==> m2/s]
+    ux = uy = vx = vy = 0
+    for i0, i1 in zip([1, 2, 0], [0, 1, 2]):
+        ux += (u[i0] + u[i1]) * (y[i0] - y[i1])
+        uy -= (u[i0] + u[i1]) * (x[i0] - x[i1])
+        vx += (v[i0] + v[i1]) * (y[i0] - y[i1])
+        vy -= (v[i0] + v[i1]) * (x[i0] - x[i1])
+    # divide integral by double area [m2/s / m2 ==> 1/day]
+    ux, uy, vx, vy =  [i / (2 * a) for i in (ux, uy, vx, vy)]
+
+    # deformation components
+    e1 = ux + vy
+    e2 = ((ux - vy) ** 2 + (uy + vx) ** 2) ** 0.5
+    e3 = np.hypot(e1, e2)
+    return e1, e2, e3
+
+def get_deformation_nodes(x, y, u, v):
+    """ Compute deformation for given nodes.
+    Input X, Y, U, V are given for individual N nodes. Nodes coordinates are triangulated and
+    area, perimeter and deformation is computed for M elements.
+    Parameters
+    ----------
+    x : Nx1 ndarray
+        X-coordinates of nodes, m
+    y : Nx1 ndarray
+        Y-coordinates of nodes, m
+    u : Nx1 ndarray
+        U-component of nodes, m/s
+    v : Nx1 ndarray
+        V-component of nodes, m/s
+    Returns
+    -------
+    e1 : Mx1 array
+        Divergence, 1/s
+    e2 : Mx1 array
+        Shear, 1/s
+    e3 : Mx1 array
+        Total deformation, 1/s
+    a : Mx1 array
+        Area, m2
+    p : Mx1 array
+        Perimeter, m
+    t : 3xM array
+        Triangulation (indices of input nodes for each element)
+    """
+    tri = Triangulation(x, y)
+
+    # coordinates and speeds of corners of each element
+    xt, yt, ut, vt = [i[tri.triangles].T for i in (x, y, u, v)]
+
+    # side lengths (X,Y,tot)
+    tri_x = np.diff(np.vstack([xt, xt[0]]), axis=0)
+    tri_y = np.diff(np.vstack([yt, yt[0]]), axis=0)
+    tri_s = np.hypot(tri_x, tri_y)
+    # perimeter
+    tri_p = np.sum(tri_s, axis=0)
+    s = tri_p/2
+    # area
+    tri_a = np.sqrt(s * (s - tri_s[0]) * (s - tri_s[1]) * (s - tri_s[2]))
+
+    # deformation components
+    e1, e2, e3 = get_deformation_elems(xt, yt, ut, vt, tri_a)
+
+    return e1, e2, e3, tri_a, tri_p, tri.triangles
 
 def get_nansat(f):
     """
@@ -213,6 +302,39 @@ def plot_pm(index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
     ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
     t = Template('out/pm_quiver/pm_quiver_${dto1}-${dto2}_${index}.png')
     save_fig(fig, t, index, n1ft, n2ft)
+
+    # deformation
+    e1, e2, e3, tri_a, tri_p, triangles = get_deformation_nodes(x1pm[gpi], y1pm[gpi], u[gpi], v[gpi])
+    # convert deformations to %/day
+    e1 *= 8640000
+    e2 *= 8640000
+    e3 *= 8640000
+    for e,t,ttl in zip(
+            [e1,e2,e3],
+            [Template('out/shear/shear_${dto1}-${dto2}_${index}.png'),
+                Template('out/divergence/divergence_${dto1}-${dto2}_${index}.png'),
+                Template('out/total-defor/total-defor_${dto1}-${dto2}_${index}.png'),
+                ],
+            ['Shear [%/day]', 'Divergence [%/day]', 'Total deformation [%/day]']):
+        vmin, vmax = np.percentile(e, [20,80])
+        fig = plt.figure(figsize=(20,20))
+        ax = plt.axes(projection=NS_CRS)
+        im = ax.tripcolor(x1pm[gpi], y1pm[gpi],
+                          triangles=triangles, facecolors=e,
+                          vmin=vmin, vmax=vmax,
+                          edgecolors='k', linewidth=1)
+        fig.colorbar(im, shrink=0.5)
+        ax.set_title(ttl)
+        ax.add_feature(LAND_50M, edgecolor='black')
+
+        ax.set_xlim([xmin, xmax])
+        ax.set_ylim([ymin, ymax])
+
+        ax.gridlines(linewidth=2, color='m',
+            draw_labels=True, alpha=0.5, linestyle=':')
+        ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
+        ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
+        save_fig(fig, t, index, n1ft, n2ft)
 
 def process_1pair(f1, f2, index):
     # create Nansat objects with one band only. 
