@@ -133,15 +133,16 @@ def save_pairs(pair_info, outfile):
             maxdiff = np.max([maxdiff, diff])
     print(f'Max interval is {maxdiff} days.')
 
-filelist = sorted(glob.glob(os.path.join(_DATA_DIR, 'RS2*')), key=get_time)
-proj = get_proj() #pyproj to calc area of overlap
-pair_info = []
-os.makedirs('out', exist_ok=True)
-outfile = 'out/RS2_pairs.csv'
-for i, f1 in enumerate(filelist[:-1]):
-    others = filelist[i+1:]
-    for f2 in others:
-        info = filtered_pair_info(f1, f2, proj)
-        if info is not None:
-            pair_info += [info]
-            save_pairs(pair_info, outfile)
+if __name__ == "__main__":
+    filelist = sorted(glob.glob(os.path.join(_DATA_DIR, 'RS2*')), key=get_time)
+    proj = get_proj() #pyproj to calc area of overlap
+    pair_info = []
+    os.makedirs('out', exist_ok=True)
+    outfile = 'out/RS2_pairs.csv'
+    for i, f1 in enumerate(filelist[:-1]):
+        others = filelist[i+1:]
+        for f2 in others:
+            info = filtered_pair_info(f1, f2, proj)
+            if info is not None:
+                pair_info += [info]
+                save_pairs(pair_info, outfile)
