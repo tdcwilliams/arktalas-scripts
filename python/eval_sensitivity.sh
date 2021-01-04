@@ -33,7 +33,6 @@ done
 # compare scalar and drift metrics
 batch_name=$(basename $RUNLIST)
 batch_name=${batch_name%.csv}
-batch_name=${batch_name#sens_}
 odir=figs/comp_runs/comp_runs.$batch_name
 for t in scalars drift
 do
