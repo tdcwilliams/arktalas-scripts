@@ -121,21 +121,22 @@ class LaunchSensitivity:
             with open(cfg, 'w') as fid:
                 fid.write('#run=results_dir legend_text\n')
                 for edir in edirs:
-                    lbl = str(int(edir.split('_')[1]))
+                    subdir = os.path.basename(edir)
+                    lbl = str(subdir.split('_')[1])
                     fid.write(f'run={edir} {lbl}\n')
                 fid.write('''
 #src=src_for_evaluate_forecast legend_text(for observation line) variable_name
 time_series_text_file(relative to each run.results_dir)''')
                 if t == 'drift':
                     fid.write('''
-src=OsisafDrift   OSISAF    Drift eval-osisaf-drift/eval_OsisafDrift_20??????-20??????_errors.txt OsisafDrift
+src=OsisafDrift   OSISAF    Drift eval-osisaf-drift/eval_OsisafDrift_2012????-20??????_errors.txt OsisafDrift
 ''')
                     continue
                 fid.write('''
-src=Cs2SmosThick CS2-SMOS Thickness eval-cs2smos/eval_Cs2SmosThick_20??????-20??????_errors.txt Cs2SmosThick
-src=OsisafConc   OSISAF   Concentration eval-osisaf-conc/eval_OsisafConc_20??????-20??????_errors.txt OsisafConc
-src=OsisafExtent   OSISAF   Extent eval-osisaf-extent/eval_OsisafExtent_20??????-20??????_errors.txt OsisafExtent
-'''
+src=Cs2SmosThick CS2-SMOS Thickness eval-cs2smos/eval_Cs2SmosThick_2012????-20??????_errors.txt Cs2SmosThick
+src=OsisafConc   OSISAF   Concentration eval-osisaf-conc/eval_OsisafConc_2012????-20??????_errors.txt OsisafConc
+src=OsisafExtent   OSISAF   Extent eval-osisaf-extent/eval_OsisafExtent_2012????-20??????_errors.txt OsisafExtent
+''')
 
     def run(self):
         os.makedirs(self.root_dir, exist_ok=True)
