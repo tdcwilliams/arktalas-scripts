@@ -122,7 +122,7 @@ class LaunchSensitivity:
                 fid.write('#run=results_dir legend_text\n')
                 for edir in edirs:
                     lbl = str(int(edir.split('_')[1]))
-                    fid.write(f'{edir} {lbl}\n')
+                    fid.write(f'run={edir} {lbl}\n')
                 fid.write('''
 #src=src_for_evaluate_forecast legend_text(for observation line) variable_name
 time_series_text_file(relative to each run.results_dir)''')
