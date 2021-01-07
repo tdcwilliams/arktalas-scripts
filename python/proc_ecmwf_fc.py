@@ -4,31 +4,31 @@ INPUT FILES:
 
 analysis
 hours: 0,6,12,18
-od.ans.201302-201303.sfc.ci.nc          conc
-od.ans.201302-201303.sfc.d2m.nc         2D
-od.ans.201302-201303.sfc.lsm.nc         land-sea mask
-od.ans.201302-201303.sfc.sp.nc          MSL = pressure
-od.ans.201302-201303.sfc.t2m.nc         2T
-od.ans.201302-201303.sfc.u10.nc         10U
-od.ans.201302-201303.sfc.v10.nc         10V
+od.ans.20130201-20130531.sfc.ci.nc      conc
+od.ans.20130201-20130531.sfc.d2m.nc     2D
+od.ans.20130201-20130531.sfc.lsm.nc     land-sea mask
+od.ans.20130201-20130531.sfc.sp.nc      MSL = pressure
+od.ans.20130201-20130531.sfc.t2m.nc     2T
+od.ans.20130201-20130531.sfc.u10.nc     10U
+od.ans.20130201-20130531.sfc.v10.nc     10V
 
 00:00 forecast
 hours: 3,9,15
-od.for00.201302-201303.sfc.sf.nc        snowfall - DEACCUM!!
-od.for00.201302-201303.sfc.ssrd.nc      SSRD = short wave down - DEACCUM!!
-od.for00.201302-201303.sfc.strd.nc      STRD = long wave down - DEACCUM!!
-od.for00.201302-201303.sfc.tp.nc        TP = total precip - DEACCUM!!
+od.for00.20130201-20130531.sfc.sf.nc    snowfall - DEACCUM!!
+od.for00.20130201-20130531.sfc.ssrd.nc  SSRD = short wave down - DEACCUM!!
+od.for00.20130201-20130531.sfc.strd.nc  STRD = long wave down - DEACCUM!!
+od.for00.20130201-20130531.sfc.tp.nc    TP = total precip - DEACCUM!!
 
 12:00 forecast
 hours: 15,21,3
-od.for12.201302-201303.sfc.sf.nc        snowfall - DEACCUM!!
-od.for12.201302-201303.sfc.ssrd.nc      SSRD = short wave down - DEACCUM!!
-od.for12.201302-201303.sfc.strd.nc      STRD = long wave down - DEACCUM!!
-od.for12.201302-201303.sfc.tp.nc        TP = total precip - DEACCUM!!
+od.for12.20130201-20130531.sfc.sf.nc    snowfall - DEACCUM!!
+od.for12.20130201-20130531.sfc.ssrd.nc  SSRD = short wave down - DEACCUM!!
+od.for12.20130201-20130531.sfc.strd.nc  STRD = long wave down - DEACCUM!!
+od.for12.20130201-20130531.sfc.tp.nc    TP = total precip - DEACCUM!!
 
 1. instantaneous variables are fine
 2. accumulated variables:
-    0=for00:3, 6=for00:9-for00:3, 12=for12:15, 18=for12:21-for12:15
+    0=2*for00:3, 6=for00:9-for00:3, 12=2*for12:15, 18=for12:21-for12:15
 '''
 
 import os
@@ -71,7 +71,6 @@ DST_VARS = {
     'SF'    : dict(VARNAME='sf',   TYPE='for'),
     }
 GRIDFILE = Template(SRC_FILE_TEMPLATE).safe_substitute(DST_VARS['10U'])
-
 if 0:
     # test on smaller subset of variables
     #dst_var = 'TP'
@@ -114,8 +113,6 @@ def get_time_slice(src_ds, date, ftype):
 
 def get_instantaneous_var(var_info, date):
     '''
-    need to flip lat
-
     Parameters:
     -----------
     var_info : dict
@@ -132,12 +129,10 @@ def get_instantaneous_var(var_info, date):
     with Dataset(fname, 'r') as src_ds:
         t_slice = get_time_slice(src_ds, date, 'ans')
         src_var = src_ds.variables[var_info['VARNAME']]
-        return src_var[t_slice,::-1,:], src_var.ncattrs()
+        return src_var[t_slice], src_var.ncattrs()
 
 def get_accumulated_var(var_info, date):
     '''
-    need to flip lat
-
     Parameters:
     -----------
     var_info : dict
@@ -156,8 +151,8 @@ def get_accumulated_var(var_info, date):
         with Dataset(fname, 'r') as src_ds:
             t_slice = get_time_slice(src_ds, date, f'for{cycle}')
             src_var = src_ds.variables[var_info['VARNAME']]
-            v_ = src_var[t_slice,::-1,:]#flip lat
-            v += [v_[0], v_[1] - v_[0]]
+            v_ = src_var[t_slice]
+            v += [2*v_[0], v_[1] - v_[0]] # convert to rate*6h for model
             atts = src_var.ncattrs()
     return np.array(v), atts
 
@@ -198,7 +193,7 @@ def get_destination_coordinates(date):
     with Dataset(GRIDFILE, 'r') as ds:
         return {
             'time': time - time_shift,
-            'lat': ds.variables['latitude'][::-1],
+            'lat': ds.variables['latitude'][:],
             'lon': ds.variables['longitude'][:],
         }
 
