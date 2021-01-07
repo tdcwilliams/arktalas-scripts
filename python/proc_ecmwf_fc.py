@@ -79,7 +79,6 @@ if 0:
 
 
 VALID_DATE = lambda x : dt.datetime.strptime(x, '%Y%m%d')
-KW_COMPRESSION = dict(zlib=True)
 
 def parse_args():
     ''' parse command line arguments '''
@@ -156,7 +155,7 @@ def get_accumulated_var(var_info, date):
             v += [2*v_[0], v_[1] - v_[0]] # convert to rate*6h for model
             if atts is None:
                 atts = vars(src_var)
-    return np.array(v), atts
+    return np.ma.array(v), atts
 
 def get_var(var_name, date):
     '''
@@ -191,7 +190,7 @@ def get_destination_coordinates(date):
     """
     # coordinates on destination grid
     time = [date + dt.timedelta(hours=i*6) for i in range(4)]
-    time = [(t - DST_REFDATE).days*24 for t in time]
+    time = [(t - DST_REFDATE).total_seconds()/3600 for t in time] #hours since DST_REFDATE
     with Dataset(GRIDFILE, 'r') as ds:
         return {
             'time': np.array(time),
@@ -212,7 +211,7 @@ def export(outfile, dst_dims, dst_data):
     dst_data : dict
     """
     # Create dataset for output
-    skip_var_attr = ['_FillValue', 'grid_mapping']
+    skip_var_attr = ['_FillValue', 'add_offset', 'scale_factor']
     # create dataset
     print(f'Exporting {outfile}')
     with Dataset(GRIDFILE, 'r') as src_ds, Dataset(outfile, 'w') as dst_ds:
@@ -222,7 +221,7 @@ def export(outfile, dst_dims, dst_data):
             dtype = {'time': 'f8'}.get(dim_name, 'f4') #time should be double
             dst_dim = dst_ds.createDimension(dim_name, dlen)
             dst_var = dst_ds.createVariable(
-                    dim_name, dtype, (dim_name,), **KW_COMPRESSION)
+                    dim_name, dtype, (dim_name,), zlib=True)
             src_var = src_ds.variables[DST_DIMS[dim_name]]
             for ncattr in src_var.ncattrs():
                 if [dim_name, ncattr] == ['time', 'units']:
@@ -236,8 +235,7 @@ def export(outfile, dst_dims, dst_data):
         # add processed variables
         for dst_var_name, (data, atts) in dst_data.items():
             dst_var = dst_ds.createVariable(dst_var_name, 'f4',
-                    ('time', 'lat', 'lon'),
-                    **KW_COMPRESSION)
+                    ('time', 'lat', 'lon'), zlib=True)
             for att, val in atts.items():
                 if att in skip_var_attr:
                     continue
@@ -259,6 +257,12 @@ def run(args):
     outfile = args.date.strftime(DST_FILEMASK)
     os.makedirs(os.path.dirname(outfile), exist_ok=True)
     export(outfile, dst_dims, dst_data)
+    if 1:
+        #test for nans
+        with Dataset(outfile, 'r') as ds:
+            for vname in DST_VARS:
+                v = ds.variables[vname][:]
+                print(f'test {vname}', np.any(v.mask))
 
 if __name__ == '__main__':
     run(parse_args())
