@@ -50,7 +50,7 @@ DST_REFDATE = dt.datetime(1950, 1, 1) #ref date hard-coded into neXtSIM
 # - input
 SRC_FILE_TEMPLATE = os.path.join(
     '/cluster/projects/nn2993k/sim/data/WRF/ECMWF_forecast_arctic_clemens',
-    'od.${TYPE}${CYCLE}.201302-201303.sfc.${VARNAME}.nc')
+    'od.${TYPE}${CYCLE}.20130201-20130531.sfc.${VARNAME}.nc')
 SRC_REFDATE = dt.datetime(1900, 1, 1) #ref date in downloaded file
 
 # Destination variables
@@ -64,7 +64,7 @@ DST_VARS = {
     '10V'   : dict(VARNAME='v10',  TYPE='ans', CYCLE=''),
     '2T'    : dict(VARNAME='t2m',  TYPE='ans', CYCLE=''),
     '2D'    : dict(VARNAME='d2m',  TYPE='ans', CYCLE=''),
-    'MSL'   : dict(VARNAME='sp',   TYPE='ans'),
+    'MSL'   : dict(VARNAME='sp',   TYPE='ans', CYCLE=''),
     'SSRD'  : dict(VARNAME='ssrd', TYPE='for'),
     'STRD'  : dict(VARNAME='strd', TYPE='for'),
     'TP'    : dict(VARNAME='tp',   TYPE='for'),
@@ -109,7 +109,7 @@ def get_time_slice(src_ds, date, ftype):
     shifts = dict(ans=0, for00=3, for12=15)
     recs = dict(ans=4, for00=2, for12=2)
     i0 = src_time.index(date + dt.timedelta(hours=shifts[ftype]))
-    return slice(i0, i0+num[ftype])
+    return slice(i0, i0+recs[ftype])
 
 def get_instantaneous_var(var_info, date):
     '''
@@ -129,7 +129,7 @@ def get_instantaneous_var(var_info, date):
     with Dataset(fname, 'r') as src_ds:
         t_slice = get_time_slice(src_ds, date, 'ans')
         src_var = src_ds.variables[var_info['VARNAME']]
-        return src_var[t_slice], src_var.ncattrs()
+        return src_var[t_slice], vars(src_var)
 
 def get_accumulated_var(var_info, date):
     '''
@@ -146,6 +146,7 @@ def get_accumulated_var(var_info, date):
         variable attributes
     '''
     v = []
+    atts = None
     for cycle in ['00', '12']:
         fname = Template(SRC_FILE_TEMPLATE).safe_substitute(dict(**var_info, CYCLE=cycle))
         with Dataset(fname, 'r') as src_ds:
@@ -153,7 +154,8 @@ def get_accumulated_var(var_info, date):
             src_var = src_ds.variables[var_info['VARNAME']]
             v_ = src_var[t_slice]
             v += [2*v_[0], v_[1] - v_[0]] # convert to rate*6h for model
-            atts = src_var.ncattrs()
+            if atts is None:
+                atts = vars(src_var)
     return np.array(v), atts
 
 def get_var(var_name, date):
@@ -188,11 +190,11 @@ def get_destination_coordinates(date):
         three vectors with destination coordinates: time, lat, lon
     """
     # coordinates on destination grid
-    time = [date + dt.timedelta(i*6) for i in range(4)]
+    time = [date + dt.timedelta(hours=i*6) for i in range(4)]
     time = [(t - DST_REFDATE).days*24 for t in time]
     with Dataset(GRIDFILE, 'r') as ds:
         return {
-            'time': time - time_shift,
+            'time': np.array(time),
             'lat': ds.variables['latitude'][:],
             'lon': ds.variables['longitude'][:],
         }
@@ -240,7 +242,7 @@ def export(outfile, dst_dims, dst_data):
                 if att in skip_var_attr:
                     continue
                 dst_var.setncattr(att, val)
-            dst_var[:] = dst_data[dst_var_name]
+            dst_var[:] = data
 
 def run(args):
     '''
