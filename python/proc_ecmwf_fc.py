@@ -257,7 +257,7 @@ def run(args):
     outfile = args.date.strftime(DST_FILEMASK)
     os.makedirs(os.path.dirname(outfile), exist_ok=True)
     export(outfile, dst_dims, dst_data)
-    if 1:
+    if 0:
         #test for nans
         with Dataset(outfile, 'r') as ds:
             for vname in DST_VARS:
