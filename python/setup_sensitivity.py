@@ -102,7 +102,7 @@ class LaunchSensitivity:
         # get slurm template
         t = CustomTemplate(self.slurm_template)
         scr = os.path.join(edir, 'inputs', 'slurm.sh')
-        opts = dict(**self.slurm_opts, job_name=f'sens_{self.batch_name}_{istr}')
+        opts = dict(**self.slurm_opts, job_name=f'{self.batch_name}_{istr}')
         with open(scr, 'w') as fid:
             fid.write(t.substitute(opts))
         # get executable
