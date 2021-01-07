@@ -33,29 +33,23 @@ od.for12.201302-201303.sfc.tp.nc        TP = total precip - DEACCUM!!
 
 import os
 import argparse
-import datetime as dt
-
-import cartopy
-import cartopy.crs as ccrs
-import matplotlib.pyplot as plt
-from netCDF4 import Dataset
 import numpy as np
-import pyproj
-from scipy.interpolate import RegularGridInterpolator
-from scipy.ndimage import distance_transform_edt
-
-from pynextsim.projection_info import ProjectionInfo
-import pynextsim.lib as nsl
+import datetime as dt
+from string import Template
+from netCDF4 import Dataset
 
 # Celsius to Kelvin conversion
 _KELVIN = 273.15 # [C]
 
 # filenames
 # - output
-DST_FILEMASK = 'ec2_start%Y%m%d.nc'
+DST_FILEMASK = os.path.join(
+    '/cluster/projects/nn2993k/sim/data/WRF/ECMWF_forecast_arctic',
+    'ec2_start%Y%m%d.nc')
 DST_REFDATE = dt.datetime(1950, 1, 1) #ref date hard-coded into neXtSIM
 # - input
-SRC_FILE_TEMPLATE = os.path.join('/cluster/projects/nn9624k/nextsim_init',
+SRC_FILE_TEMPLATE = os.path.join(
+    '/cluster/projects/nn2993k/sim/data/WRF/ECMWF_forecast_arctic_clemens',
     'od.${TYPE}${CYCLE}.201302-201303.sfc.${VARNAME}.nc')
 SRC_REFDATE = dt.datetime(1900, 1, 1) #ref date in downloaded file
 
@@ -76,7 +70,7 @@ DST_VARS = {
     'TP'    : dict(VARNAME='tp',   TYPE='for'),
     'SF'    : dict(VARNAME='sf',   TYPE='for'),
     }
-GRIDFILE = Template(SRC_FILE_TEMPLATE).safe_substitute(DST_VARS['u10'])
+GRIDFILE = Template(SRC_FILE_TEMPLATE).safe_substitute(DST_VARS['10U'])
 
 if 0:
     # test on smaller subset of variables
@@ -96,10 +90,6 @@ def parse_args():
             and deaccumulate the required variables""")
     parser.add_argument('date', type=VALID_DATE,
             help='input date (YYYYMMDD)')
-    parser.add_argument('indir', type=str,
-            help='folder where the raw files were downloaded to')
-    parser.add_argument('outdir', type=str,
-            help='folder where the processed files should be saved to')
     return parser.parse_args()
 
 def get_time_slice(src_ds, date, ftype):
@@ -135,11 +125,14 @@ def get_instantaneous_var(var_info, date):
     Returns:
     --------
     var : np.ndarray(float)
+    atts: dict
+        variable attributes
     '''
     fname = Template(SRC_FILE_TEMPLATE).safe_substitute(var_info)
     with Dataset(fname, 'r') as src_ds:
         t_slice = get_time_slice(src_ds, date, 'ans')
-        return src_ds.variables[var_info['VARNAME']][t_slice,::-1,:]#flip lat
+        src_var = src_ds.variables[var_info['VARNAME']]
+        return src_var[t_slice,::-1,:], src_var.ncattrs()
 
 def get_accumulated_var(var_info, date):
     '''
@@ -154,15 +147,19 @@ def get_accumulated_var(var_info, date):
     Returns:
     --------
     var : np.ndarray(float)
+    atts: dict
+        variable attributes
     '''
     v = []
     for cycle in ['00', '12']:
         fname = Template(SRC_FILE_TEMPLATE).safe_substitute(dict(**var_info, CYCLE=cycle))
         with Dataset(fname, 'r') as src_ds:
             t_slice = get_time_slice(src_ds, date, f'for{cycle}')
-            v_ = src_ds.variables[var_info['VARNAME']][t_slice,::-1,:]#flip lat
+            src_var = src_ds.variables[var_info['VARNAME']]
+            v_ = src_var[t_slice,::-1,:]#flip lat
             v += [v_[0], v_[1] - v_[0]]
-    return np.array(v)
+            atts = src_var.ncattrs()
+    return np.array(v), atts
 
 def get_var(var_name, date):
     '''
@@ -175,6 +172,8 @@ def get_var(var_name, date):
     Returns:
     --------
     var : np.ndarray(float)
+    atts: dict
+        variable attributes
     '''
     var_info = DST_VARS[var_name]
     if var_info['TYPE'] == 'ans':
@@ -218,7 +217,7 @@ def export(outfile, dst_dims, dst_data):
     # Create dataset for output
     skip_var_attr = ['_FillValue', 'grid_mapping']
     # create dataset
-    print('Exporting %s' %outfile)
+    print(f'Exporting {outfile}')
     with Dataset(GRIDFILE, 'r') as src_ds, Dataset(outfile, 'w') as dst_ds:
         # add dimensions
         for dim_name, dim_vec in dst_dims.items():
@@ -238,15 +237,14 @@ def export(outfile, dst_dims, dst_data):
             dst_var[:] = dim_vec
 
         # add processed variables
-        for dst_var_name, var_info in DST_VARS.items():
+        for dst_var_name, (data, atts) in dst_data.items():
             dst_var = dst_ds.createVariable(dst_var_name, 'f4',
                     ('time', 'lat', 'lon'),
                     **KW_COMPRESSION)
-            src_var = src_ds.variables[var_info['VARNAME']]
-            for ncattr in src_var.ncattrs():
-                if ncattr in skip_var_attr:
+            for att, val in atts.items():
+                if att in skip_var_attr:
                     continue
-                dst_var.setncattr(ncattr, src_var.getncattr(ncattr))
+                dst_var.setncattr(att, val)
             dst_var[:] = dst_data[dst_var_name]
 
 def run(args):
@@ -261,8 +259,8 @@ def run(args):
     dst_dims = get_destination_coordinates(args.date)
     dst_data = {v: get_var(v, args.date) for v in DST_VARS}
     # export
-    os.makedirs(args.outdir, exist_ok=True)
-    outfile = os.path.join(args.outdir, args.date.strftime(DST_FILEMASK))
+    outfile = args.date.strftime(DST_FILEMASK)
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
     export(outfile, dst_dims, dst_data)
 
 if __name__ == '__main__':
