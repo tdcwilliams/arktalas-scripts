@@ -156,6 +156,15 @@ class PlotAtmForcing:
         plt.close()
 
     def plot_wind(self, uv, dints):
+        '''
+        Parameters:
+        -----------
+        uv : list
+            uv = [u, v] with u, v x/y or lon/lat components of wind velocity
+        dints: list
+            dints = [d0, d1] with d0,d1 datetime.datetime objects
+            marking the start and finish of the averaging window
+        '''
         spd = np.hypot(*uv)
         fig, ax = self.grid.plot(spd, add_landmask=False,
                 cmap='viridis', clim=[0,10], clabel='Wind speed, m/s')
@@ -191,6 +200,25 @@ class PlotAtmForcing:
         os.makedirs(figdir, exist_ok=True)
         fig.savefig(figname)
         plt.close()
+
+    def plot_wind_gradient(self, uv, dints):
+        '''
+        Parameters:
+        -----------
+        uv : list
+            uv = [u, v] with u, v x/y or lon/lat components of wind velocity
+        dints: list
+            dints = [d0, d1] with d0,d1 datetime.datetime objects
+            marking the start and finish of the averaging window
+        '''
+        u_x, v_x = [np.gradient(a, axis=1) for a in uv]
+        u_y, v_x = [np.gradient(a, axis=0) for a in uv]
+        curl = v_x - u_y, ('wcurl', None, 'Wind curl, s$^{-1}$')
+        div = u_x + v_y, ('wdiv', None, 'Wind divergence, s$^{-1}$')
+        shear = (np.hypot(u_x - v_y, u_y + v_x),
+                    ('wshear', None, 'Wind shear, s$^{-1}$'))
+        for grad in [curl, div, shear]:
+            self.plot_scalar(*grad, dints=dints)
 
     def get_plot_data(self, arr):
         if not self.do_interp:
@@ -240,6 +268,7 @@ class PlotAtmForcing:
                     continue
                 data = [self.get_plot_data(v) for v in [u10, v10]]
                 self.plot_wind(data, (dto0, dto1))
+                self.plot_wind_gradient(data, (dto0, dto1))
 
 if __name__ == '__main__':
     obj = PlotAtmForcing()
