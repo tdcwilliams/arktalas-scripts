@@ -5,6 +5,8 @@ from scipy.interpolate import RegularGridInterpolator
 from netCDF4 import Dataset
 import datetime as dt
 from matplotlib import pyplot as plt
+import subprocess
+import argparse
 
 from pynextsim.gridding import Grid
 from pynextsim.gmshlib import GmshMesh
@@ -12,10 +14,10 @@ from pynextsim.projection_info import ProjectionInfo
 from pynextsim.irregular_grid_interpolator import IrregularGridInterpolator
 
 _PLOT_INFO = dict(
-        #rls = ('Upward longwave flux, W/m$^2$', 'rls_%Y%m%dT%H%M%SZ.png', 'viridis', [0,150]),
+        rls = ('Upward longwave flux, W/m$^2$', 'rls_%Y%m%dT%H%M%SZ.png', 'viridis', [0,150]),
         sit = ('Thickness, m', 'sit_%Y%m%dT%H%M%SZ.png', 'viridis', [0,3]),
-        #sic = ('Concentration', 'sic_%Y%m%dT%H%M%SZ.png', cmocean.cm.ice, [0,1]),
-        #wspeed = ('Wind speed, m/s', 'wspeed_%Y%m%dT%H%M%SZ.png', 'viridis', [0,10]),
+        sic = ('Concentration', 'sic_%Y%m%dT%H%M%SZ.png', cmocean.cm.ice, [0,1]),
+        wspeed = ('Wind speed, m/s', 'wspeed_%Y%m%dT%H%M%SZ.png', 'viridis', [0,10]),
         )
 
 class Gridx(Grid):
@@ -61,17 +63,17 @@ class Gridx(Grid):
             x, y = xout, yout
         return IrregularGridInterpolator(*self.xy, x, y)
 
-    def interpolate(self, data, xout, yout, latlon=False, igi=None):
-        if not igi:
-            if latlon:
-                x, y = self.projection.pyproj(xout, yout)
-            else:
-                x, y = xout, yout
-            igi = self.get_irregular_grid_interpolator(x, y)
-        out = dict()
-        for vname, arr in data.items():
-            out[vname] = igi.interpolate(arr)
-        return out, igi
+def parse_args():
+    parser = argparse.ArgumentParser("script to plot atmospheric forcing")
+    parser.add_argument('outdir', type=str,
+            help='where to save results')
+    parser.add_argument('moorings_file', type=str,
+            help='path to moorings file')
+    parser.add_argument('mesh_file', type=str,
+            help='path to nextsim mesh file')
+    parser.add_argument('-m', '--make-mp4', action='store_true',
+            help='make mp4 movies from figures')
+    return parser.parse_args()
 
 def get_target_grid():
     res = 2000 # resolution in meters of target grid
@@ -101,7 +103,8 @@ def get_target_grid():
 
 def plot(dst_grid, gmo, array, vname, dto, outdir):
     clabel, figname, cmap, clim = _PLOT_INFO[vname]
-    figname = os.path.join(outdir, dto.strftime(figname))
+    os.makedirs(os.path.dirname(figname), exist_ok=True)
+    figname = os.path.join(outdir, vname, dto.strftime(figname))
     print(f'Saving {figname}')
     fig, ax = dst_grid.plot(array, clim=clim, cmap=cmap, clabel=clabel)#, land_zorder=1)
     ax.set_title(dto.strftime(f'%Y-%m-%d %H:%M (12h average)'))
@@ -110,8 +113,7 @@ def plot(dst_grid, gmo, array, vname, dto, outdir):
     fig.savefig(figname)
     plt.close()
 
-def make_plots(ds, dst_grid, gmfil, outdir):
-    os.makedirs(outdir, exist_ok=True)
+def make_plots(ds, dst_grid, gmfil, outdir, make_mp4=False):
     src_grid = Gridx(
             ds.variables['longitude'][:],
             ds.variables['latitude'][:],
@@ -120,7 +122,6 @@ def make_plots(ds, dst_grid, gmfil, outdir):
     gmo = GmshMesh(gmfil, projection=dst_grid.projection)
     igi = src_grid.get_irregular_grid_interpolator(*dst_grid.lonlat, latlon=True)
     print(src_grid.shape, igi.src_shape)
-    #i = -1; time = float(ds.variables['time'][i])
     for i, time in enumerate(ds.variables['time'][:]):
         dto = dt.datetime(1900,1,1) + dt.timedelta(time)
         for vname in _PLOT_INFO:
@@ -129,17 +130,17 @@ def make_plots(ds, dst_grid, gmfil, outdir):
             arr = igi.interp_field(arr)
             print(dst_grid.shape, arr.shape)
             plot(dst_grid, gmo, arr, vname, dto, outdir)
-    
+
+    if make_mp4:
+        for vname in _PLOT_INFO:
+            cmd = ['ffmpeg', '-framerate', '6',
+                    '-pattern_type', 'glob', '-i', f'\'{outdir}/{vname}/{vname}*.png\'',
+                    '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                    os.path.join(outdir, vname, f'breakup_2013_wrf10km_ns10km_{vname}.mp4')]
+            print(' '.join(cmd))
+            subprocess.run(cmd)
+
+args = parse_args()
 dst_grid = get_target_grid()
-rootdir_5km = '/cluster/work/users/timill/nextsim-stand-alone/wrf_arctic_5km/breakup_2013'
-rootdir_10km = '/cluster/work/users/timill/nextsim-stand-alone/wrf_arctic_10km/breakup_2013'
-if 0:
-    moorings = os.path.join(rootdir_10km, 'expt_00_wrf10km', 'outputs', 'Moorings.nc')
-    outdir = 'figs/zoom_10km'
-    gmfil = '/cluster/projects/nn2993k/sim/mesh/wrf_arctic_10km.msh'
-else:
-    moorings = os.path.join(rootdir_5km, 'expt_01_wrf_10km-C1.5', 'outputs', 'Moorings.nc')
-    outdir = 'figs/zoom_5km'
-    gmfil = '/cluster/projects/nn2993k/sim/mesh/wrf_arctic_5km.msh'
-with Dataset(moorings, 'r') as ds:
-    make_plots(ds, dst_grid, gmfil, outdir)
+with Dataset(args.moorings_file, 'r') as ds:
+    make_plots(ds, dst_grid, args.mesh_file, args.outdir, make_mp4=args.make_mp4)
