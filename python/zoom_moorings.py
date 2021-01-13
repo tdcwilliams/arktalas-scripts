@@ -64,7 +64,8 @@ class Gridx(Grid):
         return IrregularGridInterpolator(*self.xy, x, y)
 
 def parse_args():
-    parser = argparse.ArgumentParser("script to plot atmospheric forcing")
+    parser = argparse.ArgumentParser("script to plot moorings file with zoom in on the Beaufort
+            Sea")
     parser.add_argument('outdir', type=str,
             help='where to save results')
     parser.add_argument('moorings_file', type=str,
