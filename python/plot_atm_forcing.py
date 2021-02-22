@@ -17,6 +17,8 @@ import mod_netcdf_utils as mnu
 PROJECTIONS = dict(
         wrf= ProjectionInfo(proj = 'stere', ecc = 0, a = 6370e3,
             lat_0  = 90., lon_0  = 30., lat_ts = 81.),
+        ec2_stere=ProjectionInfo(),
+        ec2_arome=ProjectionInfo(),
         )
 
 class PlotAtmForcing:
@@ -28,7 +30,7 @@ class PlotAtmForcing:
         self.do_interp = self.projection is None
         self.igi = None
         if self.do_interp:
-            # interp from lon lat to nextsim stereographic projection
+            # interp from lon, lat to nextsim stereographic projection
             self.projection = ProjectionInfo()
         self.parse_config_file()
 
@@ -37,7 +39,8 @@ class PlotAtmForcing:
         parser = argparse.ArgumentParser("script to plot atmospheric forcing")
         parser.add_argument('config_file', type=str,
                 help='path to config file with input settings')
-        parser.add_argument('forcing', type=str, choices=['wrf', 'era5', 'cfsr'],
+        parser.add_argument('forcing', type=str,
+                choices=['wrf', 'era5', 'cfsr', 'ec2', 'ec2_stere', 'ec2_arome'],
                 help='type of atmospheric forcing')
         return parser.parse_args(cli)
 
@@ -91,7 +94,10 @@ class PlotAtmForcing:
             # get target grid from eg file
             ncfil = self.template.safe_substitute(
                     dict(varname=self.temp_names[0]))
-            self.grid = Grid.init_from_netcdf(ncfil, projection=self.projection)
+            kw = dict()
+            if self.args.forcing == 'ec2_stere':
+                kw = dict(spatial_dim_names=['x', 'y'], latlon=False)
+            self.grid = Grid.init_from_netcdf(ncfil, projection=self.projection, **kw)
             return
 
         # get target grid from mesh file
@@ -183,8 +189,8 @@ class PlotAtmForcing:
         v = uv[1][::step,::step]
         if self.do_interp:
             #u, v = nsl.rotate_lonlat2xy(self.projection, x, y, u, v)
-            u, v = nsl.rotate_velocities(
-                    self.projection, x, y, u, v)
+            u, v = nsl.transform_vectors(
+                    self.projection.pyproj, x, y, u, v)
         ax.quiver(x, y, u, v, units='xy', angles='xy', color='r')
 
         # tidy up
@@ -212,7 +218,7 @@ class PlotAtmForcing:
             marking the start and finish of the averaging window
         '''
         u_x, v_x = [np.gradient(a, axis=1) for a in uv]
-        u_y, v_x = [np.gradient(a, axis=0) for a in uv]
+        u_y, v_y = [np.gradient(a, axis=0) for a in uv]
         curl = v_x - u_y, ('wcurl', None, 'Wind curl, s$^{-1}$')
         div = u_x + v_y, ('wdiv', None, 'Wind divergence, s$^{-1}$')
         shear = (np.hypot(u_x - v_y, u_y + v_x),
