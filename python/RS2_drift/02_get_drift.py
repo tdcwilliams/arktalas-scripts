@@ -346,8 +346,14 @@ def process_1pair(f1, f2, index):
     # Run Feature Tracking
     # - get start/end coordinates in the image coordinate system (colums/rows)
     # - works best with spatial mean removed (use `n1ft`, `n2ft`)
-    c1, r1, c2, r2 = feature_tracking(n1ft, n2ft, nFeatures=100000,
-            ratio_test=0.6, domainMargin=0)
+    if 1:
+        #v1: feature tracking takes HH with spatial mean removed
+        c1, r1, c2, r2 = feature_tracking(n1ft, n2ft, nFeatures=100000,
+                ratio_test=0.6, domainMargin=0)
+    else:
+        #v2: feature tracking takes HH without spatial mean removed
+        c1, r1, c2, r2 = feature_tracking(n1pm, n2pm, nFeatures=100000,
+                ratio_test=0.6, domainMargin=0)
     t = Template('out/npz_files/ft_${dto1}-${dto2}_${index}.npz')
     save_npz(t, index, n1ft, n2ft, c1=c1, r1=r1, c2=c2, r2=r2)
     plot_ft(index, n1ft, n2ft, c1, r1, c2, r2)
@@ -374,10 +380,13 @@ def run():
         print(f1, f2, sep='\n')
         print(f'Overlap = {overlap}')
         print(f'Time interval = {interval}')
-        process_1pair(
-                os.path.join(os.getenv('RS2_dir'), f1),
-                os.path.join(os.getenv('RS2_dir'), f2),
-                index)
+        try:
+            process_1pair(
+                    os.path.join(os.getenv('RS2_dir'), f1),
+                    os.path.join(os.getenv('RS2_dir'), f2),
+                    index)
+        except:
+            continue
 
 if __name__ == "__main__":
     run()

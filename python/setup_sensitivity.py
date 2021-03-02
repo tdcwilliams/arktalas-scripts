@@ -102,7 +102,7 @@ class LaunchSensitivity:
         # get slurm template
         t = CustomTemplate(self.slurm_template)
         scr = os.path.join(edir, 'inputs', 'slurm.sh')
-        opts = dict(**self.slurm_opts, job_name=f'sens_{self.batch_name}_{istr}')
+        opts = dict(**self.slurm_opts, job_name=f'{self.batch_name}_{istr}')
         with open(scr, 'w') as fid:
             fid.write(t.substitute(opts))
         # get executable
@@ -112,9 +112,36 @@ class LaunchSensitivity:
         os.chmod(exe, os.stat(exe).st_mode | new_mode)
         return edir
 
+    def make_postproc_cfg_files(self, edirs):
+        for t in ['scalars', 'drift']:
+            cfg = os.path.join('config-files',
+                    f'comp_runs_{t}.{self.batch_name}.cfg')
+            print(f'Saving {cfg}')
+            os.makedirs(os.path.dirname(cfg), exist_ok=True)
+            with open(cfg, 'w') as fid:
+                fid.write('#run=results_dir legend_text\n')
+                for edir in edirs:
+                    subdir = os.path.basename(edir)
+                    lbl = str(subdir.split('_')[1])
+                    fid.write(f'run={edir} {lbl}\n')
+                fid.write('''
+#src=src_for_evaluate_forecast legend_text(for observation line) variable_name
+time_series_text_file(relative to each run.results_dir)''')
+                if t == 'drift':
+                    fid.write('''
+src=OsisafDrift   OSISAF    Drift eval-osisaf-drift/eval_OsisafDrift_2012????-20??????_errors.txt OsisafDrift
+''')
+                    continue
+                fid.write('''
+src=Cs2SmosThick CS2-SMOS Thickness eval-cs2smos/eval_Cs2SmosThick_2012????-20??????_errors.txt Cs2SmosThick
+src=OsisafConc   OSISAF   Concentration eval-osisaf-conc/eval_OsisafConc_2012????-20??????_errors.txt OsisafConc
+src=OsisafExtent   OSISAF   Extent eval-osisaf-extent/eval_OsisafExtent_2012????-20??????_errors.txt OsisafExtent
+''')
+
     def run(self):
         os.makedirs(self.root_dir, exist_ok=True)
         runlist = os.path.join(self.root_dir, f'{self.batch_name}.csv')
+        edirs = []
         i0 = 0
         dlist = sorted(glob.glob(os.path.join(self.root_dir, 'expt_???')))
         if len(dlist) > 0:
@@ -127,7 +154,9 @@ class LaunchSensitivity:
                     fid.write(','.join(names) + '\n')
                 values = [os.path.basename(edir)] + list(self.configs[i].values())
                 fid.write(','.join(values) + '\n')
+                edirs += [edir]
         print(f"Saved experiment summary to {runlist}")
+        self.make_postproc_cfg_files(edirs)
 
 if __name__ == '__main__':
     obj = LaunchSensitivity()

@@ -9,17 +9,43 @@ import argparse
 from pynextsim.gmshlib import GmshMesh
 from pynextsim.gridding import Grid
 from pynextsim.nextsim_config import NextsimConfig
+from pynextsim.projection_info import ProjectionInfo
 import pynextsim.lib as nsl
 
 import mod_netcdf_utils as mnu
+
+PROJECTIONS = dict(
+        wrf= ProjectionInfo(proj = 'stere', ecc = 0, a = 6370e3,
+            lat_0  = 90., lon_0  = 30., lat_ts = 81.),
+        ec2_stere=ProjectionInfo(),
+        ec2_arome=ProjectionInfo(),
+        )
 
 class PlotAtmForcing:
     """ Base class for plotting the different forcings """
 
     def __init__(self, cli=None):
-        #should be inputs
-        args = self.parse_args(cli)
-        opts = NextsimConfig(args.config_file)['plot_atm_forcing']
+        self.args = self.parse_args(cli)
+        self.projection = PROJECTIONS.get(self.args.forcing, None)
+        self.do_interp = self.projection is None
+        self.igi = None
+        if self.do_interp:
+            # interp from lon, lat to nextsim stereographic projection
+            self.projection = ProjectionInfo()
+        self.parse_config_file()
+
+    @staticmethod
+    def parse_args(cli=None):
+        parser = argparse.ArgumentParser("script to plot atmospheric forcing")
+        parser.add_argument('config_file', type=str,
+                help='path to config file with input settings')
+        parser.add_argument('forcing', type=str,
+                choices=['wrf', 'era5', 'cfsr', 'ec2', 'ec2_stere', 'ec2_arome'],
+                help='type of atmospheric forcing')
+        return parser.parse_args(cli)
+
+    def parse_config_file(self):
+        opts = NextsimConfig(self.args.config_file)['plot_atm_forcing']
         for att, f_cvt in [
                 ('title', str),
                 ('data_dir', str),
@@ -43,7 +69,7 @@ class PlotAtmForcing:
         self.mesh_file = os.path.join(os.getenv('NEXTSIM_MESH_DIR'),
             opts['mesh_file'])
         self.scalar_vars = []
-        svars = opts['scalar_vars']
+        svars = opts.get('scalar_vars', 'None')
         if svars == 'None':
             return
         if isinstance(svars, str):
@@ -57,27 +83,30 @@ class PlotAtmForcing:
                 clim = [float(vmin), float(vmax)]
             self.scalar_vars += [(varname, clim, clabel)]
 
-    @staticmethod
-    def parse_args(cli=None):
-        parser = argparse.ArgumentParser("script to plot atmospheric forcing")
-        parser.add_argument('config_file', type=str,
-                help='path to config file with input settings')
-        return parser.parse_args(cli)
-
     @property
     def src_lonlat(self):
         f = self.template.safe_substitute(dict(varname=self.wind_names[0]))
         return mnu.nc_getinfo(f).get_lonlat(ij_range=self.ij_range)
 
     def set_grid_igi(self):
-        # get target grid
         print('Getting target grid')
-        self.gmsh = GmshMesh(self.mesh_file)
-        self.grid = self.gmsh.boundary.get_grid(resolution=self.plot_res*1000)
+        if not self.do_interp:
+            # get target grid from eg file
+            ncfil = self.template.safe_substitute(
+                    dict(varname=self.temp_names[0]))
+            kw = dict()
+            if self.args.forcing == 'ec2_stere':
+                kw = dict(spatial_dim_names=['x', 'y'], latlon=False)
+            self.grid = Grid.init_from_netcdf(ncfil, projection=self.projection, **kw)
+            return
 
-        # get interpolator
+        # get target grid from mesh file
+        gmsh = GmshMesh(self.mesh_file, projection=self.projection)
+        self.grid = gmsh.boundary.get_grid(
+                resolution=self.plot_res*1000, projection=self.projection)
         print('Getting interpolator')
-        self.igi = self.grid.get_interpolator(self.src_lonlat, interp_from=False, latlon=True)
+        self.igi = self.grid.get_interpolator(self.src_lonlat,
+                interp_from=False, latlon=True)
 
     @staticmethod
     def floor_time(dto, avg_period_hours=12):
@@ -132,7 +161,16 @@ class PlotAtmForcing:
         fig.savefig(figname)
         plt.close()
 
-    def plot_wind(self, uv, dints, step=10):
+    def plot_wind(self, uv, dints):
+        '''
+        Parameters:
+        -----------
+        uv : list
+            uv = [u, v] with u, v x/y or lon/lat components of wind velocity
+        dints: list
+            dints = [d0, d1] with d0,d1 datetime.datetime objects
+            marking the start and finish of the averaging window
+        '''
         spd = np.hypot(*uv)
         fig, ax = self.grid.plot(spd, add_landmask=False,
                 cmap='viridis', clim=[0,10], clabel='Wind speed, m/s')
@@ -143,11 +181,16 @@ class PlotAtmForcing:
         #ax.clabel(cs, inline=True, fontsize=10)
 
         # wind vectors
+        dx_step = 100e3 #interval between wind vectors
+        step = int(np.ceil(dx_step/self.grid.dx))
         x = self.grid.xy[0][::step,::step] 
         y = self.grid.xy[1][::step,::step]
         u = uv[0][::step,::step]
         v = uv[1][::step,::step]
-        u, v = nsl.rotate_lonlat2xy(self.grid.projection, x, y, u, v)
+        if self.do_interp:
+            #u, v = nsl.rotate_lonlat2xy(self.projection, x, y, u, v)
+            u, v = nsl.transform_vectors(
+                    self.projection.pyproj, x, y, u, v)
         ax.quiver(x, y, u, v, units='xy', angles='xy', color='r')
 
         # tidy up
@@ -164,6 +207,30 @@ class PlotAtmForcing:
         fig.savefig(figname)
         plt.close()
 
+    def plot_wind_gradient(self, uv, dints):
+        '''
+        Parameters:
+        -----------
+        uv : list
+            uv = [u, v] with u, v x/y or lon/lat components of wind velocity
+        dints: list
+            dints = [d0, d1] with d0,d1 datetime.datetime objects
+            marking the start and finish of the averaging window
+        '''
+        u_x, v_x = [np.gradient(a, axis=1) for a in uv]
+        u_y, v_y = [np.gradient(a, axis=0) for a in uv]
+        curl = v_x - u_y, ('wcurl', None, 'Wind curl, s$^{-1}$')
+        div = u_x + v_y, ('wdiv', None, 'Wind divergence, s$^{-1}$')
+        shear = (np.hypot(u_x - v_y, u_y + v_x),
+                    ('wshear', None, 'Wind shear, s$^{-1}$'))
+        for grad in [curl, div, shear]:
+            self.plot_scalar(*grad, dints=dints)
+
+    def get_plot_data(self, arr):
+        if not self.do_interp:
+            return arr
+        return self.igi.interp_field(arr)
+
     def test_plot(self):
         ''' test interpolation by plotting lon, lat '''
         #print(lonlat)
@@ -172,8 +239,7 @@ class PlotAtmForcing:
                 ('lat', None, 'Latitude, $^\circ$N'),
                 ]
         for plot_var, arr in zip(plot_vars, self.src_lonlat):
-            data = self.igi.interp_field(arr)
-            self.plot_scalar(data, plot_var)
+            self.plot_scalar(self.get_plot_data(arr), plot_var)
 
     def run(self):
         self.set_grid_igi()
@@ -188,7 +254,7 @@ class PlotAtmForcing:
                     mnu.nc_getinfo(f), varname):
                 if v is None:
                     continue
-                data = self.igi.interp_field(v)
+                data = self.get_plot_data(v)
                 if varname in self.temp_names:
                     data -= 273.15 #kelvin to deg C
                 self.plot_scalar(data, plot_var, dints=(dto0, dto1))
@@ -206,8 +272,9 @@ class PlotAtmForcing:
                     ):
                 if u10 is None or v10 is None:
                     continue
-                data = [self.igi.interp_field(v) for v in [u10, v10]]
+                data = [self.get_plot_data(v) for v in [u10, v10]]
                 self.plot_wind(data, (dto0, dto1))
+                self.plot_wind_gradient(data, (dto0, dto1))
 
 if __name__ == '__main__':
     obj = PlotAtmForcing()
