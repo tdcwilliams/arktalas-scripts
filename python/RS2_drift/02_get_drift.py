@@ -48,9 +48,11 @@ def parse_args():
             help='Use real features for feature tracking')
     parser.add_argument('-qt', '--quality-threshold', type=float,
             default=2, help='Threshold on quality, require rpm*hpm > this value')
+    parser.add_argument('-f', '--force', action='store_true',
+            help='Redo pattern matching even if results are already saved')
     return parser.parse_args()
 
-def get_nansat(f):
+def get_nansat(filename):
     """
     Returns:
     --------
@@ -59,22 +61,43 @@ def get_nansat(f):
     npm: nansat.Nansat
         sigma0_HH without spatial mean removed (so pattern matching doesn't crash)
     """
-    if 0:
-        n = get_n(f, bandName='sigma0_HH', remove_spatial_mean=True)
-        return n, n
-    n = Nansat(f)
-    start = n.time_coverage_start
-    ds = gdal.Open(n.filename+'/imagery_HH.tif')
-    hh = ds.ReadAsArray()
-    npm = Nansat.from_domain(n, array=hh)
-    hh -= get_spatial_mean(hh).astype('uint8') #remove mean
-    nft = Nansat.from_domain(n, array=hh)
-    for n in [nft, npm]:
-        n.set_metadata(dict(time_coverage_start=start))
-    return nft, npm
+    n01 = Nansat(filename)
+    time_coverage_start = n01.time_coverage_start
+
+    # open with Nansat to find HH bandname
+    filename_gdal = f'RADARSAT_2_CALIB:UNCALIB:{filename}/product.xml'
+    n02 = Nansat(filename_gdal)
+
+    try:
+        band_id = n02.get_band_number({'POLARIMETRIC_INTERP': 'HH'})
+    except:
+        band_id = 1
+
+    # replace zeros in low values (not near border)
+    img = n02[band_id]
+    img_ = img - get_spatial_mean(img).astype('uint8') #remove mean
+    img[100:-100, 100:-100] = np.clip(img[100:-100, 100:-100], 1, 255)
+
+    # create new Nansat with one band only
+    # - img_ is better for FT and plotting
+    n03 = Nansat.from_domain(n02, img_)
+    n03.set_metadata('time_coverage_start', n01.time_coverage_start)
+
+    # improve geolocation
+    n03.reproject_gcps()
+    n03.vrt.tps = True
+
+    # create new Nansat with one band only
+    # - img is better for PM
+    n04 = Nansat.from_domain(n02, img)
+    n04.set_metadata('time_coverage_start', n01.time_coverage_start)
+
+    # improve geolocation
+    n04.reproject_gcps()
+    n04.vrt.tps = True
+    return n03, n04
 
 def fake_feature_tracking(n1, n2):
-    print('Creating fake features')
     # create fake feature tracking points
     n1rows, n1cols = n1.shape()
     n2rows, n2cols = n2.shape()
@@ -87,6 +110,7 @@ def fake_feature_tracking(n1, n2):
     c1lon, r1lat = n1.transform_points(c1, r1)
     c2, r2 = n2.transform_points(c1lon, r1lat, DstToSrc=1)
     gpi = (c2 > 0) * (c2 < n2cols) * (r2 > 0) * (r2 < n2rows)
+    print(f'Created {np.sum(gpi)} fake features')
     return c1[gpi], r1[gpi], c2[gpi], r2[gpi]
 
 def fill_nan_gaps(array, distance=15):
@@ -241,7 +265,7 @@ def save_npz(args, t, index, n1, n2, **kwargs):
 
 def load_npz(args, t, index, n1, n2):
     fname = get_filename(args, t, index, n1, n2)
-    if os.path.exists(fname):
+    if os.path.exists(fname) and not args.force:
         print(f'Loading {fname}')
         return dict(np.load(fname))
 
@@ -308,7 +332,7 @@ def plot_pm(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
     ax.set_title('rpm*hpm')
     #
     ax = fig.add_subplot(122)
-    im = ax.imshow(u)
+    im = ax.imshow(u, vmin=-.25, vmax=.25)
     ax.contour(quality, levels=[args.quality_threshold])
     ax.set_title('x velocity, m/s')
     fig.colorbar(im, shrink=.4)
@@ -404,12 +428,12 @@ def plot_pm_clean(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, h
 
     fig = plt.figure()
     ax = fig.add_subplot(121)
-    im = ax.imshow(u)
+    im = ax.imshow(u, vmin=-.25, vmax=.25)
     ax.set_title('x velocity, m/s')
     fig.colorbar(im, shrink=.4)
 
     ax = fig.add_subplot(122)
-    im = ax.imshow(u2)
+    im = ax.imshow(u2, vmin=-.25, vmax=.25)
     ax.set_title('Cleaned x velocity, m/s')
     fig.colorbar(im, shrink=.4)
 
@@ -515,10 +539,10 @@ def process_1pair(args, f1, f2, index):
 
         t = Template('npz_files/ft_${dto1}-${dto2}_${index}.npz')
         save_npz(args, t, index, n1ft, n2ft, c1=c1, r1=r1, c2=c2, r2=r2)
-        plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2)
     else:
         # Fake feature tracking to get more starting points for pattern matching
         c1, r1, c2, r2 = fake_feature_tracking(n1pm, n2pm)
+    plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2)
     lon1pm, lat1pm = n1ft.get_geolocation_grids(200)
 
     # Pattern matching
@@ -536,13 +560,19 @@ def process_1pair(args, f1, f2, index):
                 lon2pm, lat2pm,
                 ) = pattern_matching(
                         lon1pm, lat1pm, n1pm, c1, r1, n2pm, c2, r2,
-                        min_border=300, max_border=300,
-                        img_size=50, srs=NS_SRS)
+                        min_border=500, max_border=500,
+                        srs=NS_SRS, img_size=71,
+                        angles=[-10, -5, 0, 5, 10],
+                        threads=10,
+                        )
         pm_results['upm_clean'] = clean_velo_field(args,
                 pm_results['upm'], pm_results['rpm'], pm_results['hpm'])
         pm_results['vpm_clean'] = clean_velo_field(args,
                 pm_results['vpm'], pm_results['rpm'], pm_results['hpm'])
         save_npz(args, t, index, n1ft, n2ft, **pm_results)
+
+    gpi = np.isfinite(pm_results['upm_clean'] * pm_results['vpm_clean'])
+    print(f'Detected {np.sum(gpi)} good drift vectors')
 
     plot_pm(args, index, n1ft, n2ft,
                 lon1pm, lat1pm,
