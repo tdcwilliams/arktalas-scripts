@@ -2,24 +2,27 @@
 # coding: utf-8
 
 import os
+from argparse import ArgumentParser
 import numpy as np
+import pyproj
+import datetime as dt
+import pandas as pd
+
+from scipy.ndimage import median_filter
+from scipy.ndimage.morphology import distance_transform_edt
+from matplotlib.tri import Triangulation
+
 import matplotlib.pyplot as plt
 import cartopy
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
-from matplotlib.tri import Triangulation
-from argparse import ArgumentParser
-
 from shapely.geometry import Polygon
-import pyproj
-import datetime as dt
-import pandas as pd
+
 from osgeo import gdal
 from string import Template
 
 from nansat import Nansat, Domain, NSR, Figure
-
 from sea_ice_drift import get_n
 from sea_ice_drift.lib import get_spatial_mean
 from sea_ice_drift.ftlib import feature_tracking
@@ -61,6 +64,32 @@ def fake_feature_tracking(n1, n2):
     c2, r2 = n2.transform_points(c1lon, r1lat, DstToSrc=1)
     gpi = (c2 > 0) * (c2 < n2cols) * (r2 > 0) * (r2 < n2rows)
     return c1[gpi], r1[gpi], c2[gpi], r2[gpi]
+
+def fill_nan_gaps(array, distance=15):
+    """ Fill gaps in input raster
+
+    Parameters
+    ----------
+    array : 2D numpy.array
+        Input ratser with nan values
+    distance : int
+        Minimum size of gap to fill
+
+    Returns
+    -------
+    array : 2D numpy.array
+        Ratser with nan gaps field with nearest neigbour values
+
+    """
+    array = np.array(array)
+    dist, indi = distance_transform_edt(
+        np.isnan(array),
+        return_distances=True,
+        return_indices=True)
+    gpi = dist <= distance
+    r,c = indi[:,gpi]
+    array[gpi] = array[r,c]
+    return array
 
 def clean_velo_field(args, a, rpm, hpm, fill_size=1, med_filt_size=3):
     """ Replace gaps with median filtered values """
@@ -206,11 +235,14 @@ def get_bbox():
 
 def get_filename(args, t, index, n1, n2):
     fmt = '%Y%m%dT%H%M%SZ'
-    return t.substitute(dict(
-        index = index,
-        dto1 = n1.time_coverage_start.strftime(fmt),
-        dto2 = n2.time_coverage_start.strftime(fmt),
-        ))
+    return os.path.join(
+            args.outdir,
+            t.substitute(dict(
+                index = index,
+                dto1 = n1.time_coverage_start.strftime(fmt),
+                dto2 = n2.time_coverage_start.strftime(fmt),
+                )),
+            )
 
 def save_fig(args, fig, t, index, n1, n2):
     figname = get_filename(args, t, index, n1, n2)
@@ -224,6 +256,12 @@ def save_npz(args, t, index, n1, n2, **kwargs):
     os.makedirs(os.path.dirname(fname), exist_ok=True)
     print(f'Saving {fname}')
     np.savez(fname, **kwargs)
+
+def load_npz(args, t, index, n1, n2):
+    fname = get_filename(args, t, index, n1, n2)
+    if os.path.exists(fname):
+        print(f'Loading {fname}')
+        return dict(np.load(fname))
 
 # image in stereographic projection
 def get_projected_hh(n, d, **kwargs):
@@ -249,7 +287,7 @@ def plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2):
     ax.plot(lon1b, lat1b, '.-', label='border_1', transform=ccrs.PlateCarree())
     ax.plot(lon2b, lat2b, '.-', label='border_2', transform=ccrs.PlateCarree())
     ax.legend()
-    t = Template('out/ft_keypoints/ft_keypoints_${dto1}-${dto2}_${index}.png')
+    t = Template('ft_keypoints/ft_keypoints_${dto1}-${dto2}_${index}.png')
     save_fig(args, fig, t, index, n1ft, n2ft)
 
     # Plot ice drift on top of image_1
@@ -267,7 +305,7 @@ def plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2):
     plt.imshow(hh, cmap='gray', vmin=vmin, vmax=vmax)
     plt.quiver(c1, r1, dc, dr, color='r', angles='xy', scale_units='xy')#, scale=0.2)
     plt.plot(n1lon2b, n1lat2b, 'k.-')
-    t = Template('out/ft_quiver/ft_quiver_${dto1}-${dto2}_${index}.png')
+    t = Template('ft_quiver/ft_quiver_${dto1}-${dto2}_${index}.png')
     save_fig(args, fig, t, index, n1ft, n2ft)
 
 def plot_pm(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
@@ -292,7 +330,7 @@ def plot_pm(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
     ax.contour(quality, levels=[args.quality_threshold])
     ax.set_title('x velocity, m/s')
     fig.colorbar(im, shrink=.4)
-    t = Template('out/pm_quality/pm_quality_${dto1}-${dto2}_${index}.png')
+    t = Template('pm_quality/pm_quality_${dto1}-${dto2}_${index}.png')
     save_fig(args, fig, t, index, n1ft, n2ft)
 
     # plot final drift on image 1
@@ -335,7 +373,7 @@ def plot_pm(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
         draw_labels=True, alpha=0.5, linestyle=':')
     ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
     ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
-    t = Template('out/pm_quiver/pm_quiver_${dto1}-${dto2}_${index}.png')
+    t = Template('pm_quiver/pm_quiver_${dto1}-${dto2}_${index}.png')
     save_fig(args, fig, t, index, n1ft, n2ft)
 
     # deformation
@@ -346,9 +384,9 @@ def plot_pm(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
     e3 *= 8640000
     for e,t,ttl in zip(
             [e1,e2,e3],
-            [Template('out/shear/shear_${dto1}-${dto2}_${index}.png'),
-                Template('out/divergence/divergence_${dto1}-${dto2}_${index}.png'),
-                Template('out/total-defor/total-defor_${dto1}-${dto2}_${index}.png'),
+            [Template('shear/shear_${dto1}-${dto2}_${index}.png'),
+                Template('divergence/divergence_${dto1}-${dto2}_${index}.png'),
+                Template('total-defor/total-defor_${dto1}-${dto2}_${index}.png'),
                 ],
             ['Shear [%/day]', 'Divergence [%/day]', 'Total deformation [%/day]']):
         vmin, vmax = np.percentile(e, [20,80])
@@ -382,12 +420,13 @@ def plot_pm_clean(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, h
     # start points in stereoprojection
     x1pm, y1pm = NS_PROJ(lon1pm, lat1pm)
 
+    fig = plt.figure()
     ax = fig.add_subplot(121)
     im = ax.imshow(u)
     ax.set_title('x velocity, m/s')
     fig.colorbar(im, shrink=.4)
 
-    ax = fig.add_subplot(121)
+    ax = fig.add_subplot(122)
     im = ax.imshow(u2)
     ax.set_title('Cleaned x velocity, m/s')
     fig.colorbar(im, shrink=.4)
@@ -491,26 +530,48 @@ def process_1pair(args, f1, f2, index):
             #v1: feature tracking takes HH without spatial mean removed
             c1, r1, c2, r2 = feature_tracking(n1pm, n2pm, nFeatures=100000,
                     ratio_test=0.6, domainMargin=0)
+
+        t = Template('npz_files/ft_${dto1}-${dto2}_${index}.npz')
+        save_npz(args, t, index, n1ft, n2ft, c1=c1, r1=r1, c2=c2, r2=r2)
+        plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2)
     else:
         # Fake feature tracking to get more starting points for pattern matching
         c1, r1, c2, r2 = fake_feature_tracking(n1pm, n2pm)
-
-    t = Template('out/npz_files/ft_${dto1}-${dto2}_${index}.npz')
-    save_npz(args, t, index, n1ft, n2ft, c1=c1, r1=r1, c2=c2, r2=r2)
-    plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2)
+    lon1pm, lat1pm = n1ft.get_geolocation_grids(200)
 
     # Pattern matching
     # lon/lat grids for image_1
-    lon1pm, lat1pm = n1ft.get_geolocation_grids(200)
-    # Run Pattern Matching for each element in lon1pm/lat1pm matrix
-    # ice displacement upm and vpm are returned in meters in Stereographic projection
-    upm, vpm, apm, rpm, hpm, lon2pm, lat2pm = pattern_matching(
-        lon1pm, lat1pm, n1pm, c1, r1, n2pm, c2, r2,
-        min_border=300, max_border=300,
-        img_size=50, srs=NS_SRS)
-    t = Template('out/npz_files/pm_${dto1}-${dto2}_${index}.npz')
-    save_npz(args, t, index, n1ft, n2ft, upm=upm, vpm=vpm, apm=apm, rpm=rpm, hpm=hpm)
-    plot_pm(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm)
+    t = Template('npz_files/pm_${dto1}-${dto2}_${index}.npz')
+    pm_results = load_npz(args, t, index, n1ft, n2ft)
+    if pm_results is None:
+        print('Running pattern matching...')
+        pm_results = dict()
+        # Run Pattern Matching for each element in lon1pm/lat1pm matrix
+        # ice displacement upm and vpm are returned in meters in Stereographic projection
+        (
+                pm_results['upm'], pm_results['vpm'],
+                pm_results['apm'], pm_results['rpm'], pm_results['hpm'],
+                lon2pm, lat2pm,
+                ) = pattern_matching(
+                        lon1pm, lat1pm, n1pm, c1, r1, n2pm, c2, r2,
+                        min_border=300, max_border=300,
+                        img_size=50, srs=NS_SRS)
+        pm_results['upm_clean'] = clean_velo_field(args,
+                pm_results['upm'], pm_results['rpm'], pm_results['hpm'])
+        pm_results['vpm_clean'] = clean_velo_field(args,
+                pm_results['vpm'], pm_results['rpm'], pm_results['hpm'])
+        save_npz(args, t, index, n1ft, n2ft, **pm_results)
+
+    plot_pm(args, index, n1ft, n2ft,
+                lon1pm, lat1pm,
+                pm_results['upm'], pm_results['vpm'],
+                pm_results['apm'], pm_results['rpm'], pm_results['hpm'],
+                )
+    plot_pm_clean(args, index, n1ft, n2ft,
+                lon1pm, lat1pm,
+                pm_results['upm'], pm_results['vpm'],
+                pm_results['apm'], pm_results['rpm'], pm_results['hpm'],
+                )
 
 def run():
     args = parse_args()
