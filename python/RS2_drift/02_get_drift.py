@@ -296,6 +296,10 @@ def plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2):
     t = Template('ft_keypoints/ft_keypoints_${dto1}-${dto2}_${index}.png')
     save_fig(args, fig, t, index, n1ft, n2ft)
 
+    if not args.use_real_features:
+        # don't make quiver plot since vectors are fake
+        return
+
     # Plot ice drift on top of image_1
     # - end points in image_1 coordinate system
     n1c2, n1r2 = n1ft.transform_points(lon2ft, lat2ft, DstToSrc=1)
