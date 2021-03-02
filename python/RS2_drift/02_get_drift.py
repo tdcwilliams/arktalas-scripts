@@ -50,7 +50,31 @@ def parse_args():
             default=2, help='Threshold on quality, require rpm*hpm > this value')
     return parser.parse_args()
 
+def get_nansat(f):
+    """
+    Returns:
+    --------
+    nft : nansat.Nansat
+        sigma0_HH with spatial mean removed (helps feature tracking and plotting)
+    npm: nansat.Nansat
+        sigma0_HH without spatial mean removed (so pattern matching doesn't crash)
+    """
+    if 0:
+        n = get_n(f, bandName='sigma0_HH', remove_spatial_mean=True)
+        return n, n
+    n = Nansat(f)
+    start = n.time_coverage_start
+    ds = gdal.Open(n.filename+'/imagery_HH.tif')
+    hh = ds.ReadAsArray()
+    npm = Nansat.from_domain(n, array=hh)
+    hh -= get_spatial_mean(hh).astype('uint8') #remove mean
+    nft = Nansat.from_domain(n, array=hh)
+    for n in [nft, npm]:
+        n.set_metadata(dict(time_coverage_start=start))
+    return nft, npm
+
 def fake_feature_tracking(n1, n2):
+    print('Creating fake features')
     # create fake feature tracking points
     n1rows, n1cols = n1.shape()
     n2rows, n2cols = n2.shape()
@@ -190,48 +214,6 @@ def get_deformation_nodes(x, y, u, v):
     e1, e2, e3 = get_deformation_elems(xt, yt, ut, vt, tri_a)
 
     return e1, e2, e3, tri_a, tri_p, tri.triangles
-
-def get_nansat(f):
-    """
-    Returns:
-    --------
-    nft : nansat.Nansat
-        sigma0_HH with spatial mean removed (helps feature tracking and plotting)
-    npm: nansat.Nansat
-        sigma0_HH without spatial mean removed (so pattern matching doesn't crash)
-    """
-    if 0:
-        n = get_n(f, bandName='sigma0_HH', remove_spatial_mean=True)
-        return n, n
-    n = Nansat(f)
-    start = n.time_coverage_start
-    ds = gdal.Open(n.filename+'/imagery_HH.tif')
-    hh = ds.ReadAsArray()
-    npm = Nansat.from_domain(n, array=hh)
-    hh -= get_spatial_mean(hh).astype('uint8') #remove mean
-    nft = Nansat.from_domain(n, array=hh)
-    for n in [nft, npm]:
-        n.set_metadata(dict(time_coverage_start=start))
-    return nft, npm
-
-def get_bbox_approx():
-    lon, lat = np.array([
-        (-109.4, 74.7), # TR
-        (-118.8, 67.5), # BR
-        (-161.3, 70.5), # BL: Barrow
-        (-153.9, 75.8), # TL
-        ]).T
-    return lon, lat
-
-
-def get_bbox():
-    lon, lat = get_bbox_approx()
-    x, y = NS_PROJ(lon, lat)
-    xav, yav = np.mean(x), np.mean(y)
-    dx = x.max() - x.min()
-    dy = y.max() - y.min()
-    factor = 1.4
-    return xav - factor*dx/2, xav + factor*dx/2, yav - factor*dy/2, yav + factor*dy/2
 
 def get_filename(args, t, index, n1, n2):
     fmt = '%Y%m%dT%H%M%SZ'
