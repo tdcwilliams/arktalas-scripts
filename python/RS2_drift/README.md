@@ -53,3 +53,7 @@ S1B_EW_GRDM_1SDH_20200125T114955_20200125T115055_019973_025C81_EC1A
 # Match scenes that are close enough in time
 `./01_match_scenes.py`
 Saves results to `out/RS2_pairs.csv`.
+
+# Calculate drift and make plots
+`./02_get_drift.py out`
+Saves results to `out/npz_files` and saves some other plots to `out` directory.
