@@ -2,23 +2,27 @@
 # coding: utf-8
 
 import os
+from argparse import ArgumentParser
 import numpy as np
+import pyproj
+import datetime as dt
+import pandas as pd
+
+from scipy.ndimage import median_filter
+from scipy.ndimage.morphology import distance_transform_edt
+from matplotlib.tri import Triangulation
+
 import matplotlib.pyplot as plt
 import cartopy
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
-from matplotlib.tri import Triangulation
-
 from shapely.geometry import Polygon
-import pyproj
-import datetime as dt
-import pandas as pd
+
 from osgeo import gdal
 from string import Template
 
 from nansat import Nansat, Domain, NSR, Figure
-
 from sea_ice_drift import get_n
 from sea_ice_drift.lib import get_spatial_mean
 from sea_ice_drift.ftlib import feature_tracking
@@ -34,8 +38,116 @@ NS_CRS = ccrs.NorthPolarStereo(central_longitude=-45, true_scale_latitude=60,
 LAND_50M = cfeature.NaturalEarthFeature('physical', 'land', '50m',
                                         edgecolor='face',
                                         facecolor=cfeature.COLORS['land'])
-# threshold on quality = rpm*hpm
-QTHRESH = 3.5
+def parse_args():
+    parser = ArgumentParser('Extract sea ice drift from pairs of Radarsat 2 images')
+    parser.add_argument('outdir', type=str,
+            help='Where to save the figures')
+    parser.add_argument('-t', '--test', action='store_true',
+            help='Just run for one day for testing')
+    parser.add_argument('-urf', '--use-real-features', action='store_true',
+            help='Use real features for feature tracking')
+    parser.add_argument('-qt', '--quality-threshold', type=float,
+            default=2, help='Threshold on quality, require rpm*hpm > this value')
+    parser.add_argument('-f', '--force', action='store_true',
+            help='Redo pattern matching even if results are already saved')
+    return parser.parse_args()
+
+def get_nansat(filename):
+    """
+    Returns:
+    --------
+    nft : nansat.Nansat
+        sigma0_HH with spatial mean removed (helps feature tracking and plotting)
+    npm: nansat.Nansat
+        sigma0_HH without spatial mean removed (so pattern matching doesn't crash)
+    """
+    n01 = Nansat(filename)
+    time_coverage_start = n01.time_coverage_start
+
+    # open with Nansat to find HH bandname
+    filename_gdal = f'RADARSAT_2_CALIB:UNCALIB:{filename}/product.xml'
+    n02 = Nansat(filename_gdal)
+
+    try:
+        band_id = n02.get_band_number({'POLARIMETRIC_INTERP': 'HH'})
+    except:
+        band_id = 1
+
+    # replace zeros in low values (not near border)
+    img = n02[band_id]
+    img_ = img - get_spatial_mean(img).astype('uint8') #remove mean
+    img[100:-100, 100:-100] = np.clip(img[100:-100, 100:-100], 1, 255)
+
+    # create new Nansat with one band only
+    # - img_ is better for FT and plotting
+    n03 = Nansat.from_domain(n02, img_)
+    n03.set_metadata('time_coverage_start', n01.time_coverage_start)
+
+    # improve geolocation
+    n03.reproject_gcps()
+    n03.vrt.tps = True
+
+    # create new Nansat with one band only
+    # - img is better for PM
+    n04 = Nansat.from_domain(n02, img)
+    n04.set_metadata('time_coverage_start', n01.time_coverage_start)
+
+    # improve geolocation
+    n04.reproject_gcps()
+    n04.vrt.tps = True
+    return n03, n04
+
+def fake_feature_tracking(n1, n2):
+    # create fake feature tracking points
+    n1rows, n1cols = n1.shape()
+    n2rows, n2cols = n2.shape()
+
+    stp = 500
+    c1, r1 = [a.flatten() for a in np.meshgrid(
+        np.arange(100, n1cols-100, stp),
+        np.arange(100, n1rows-100, stp),
+        )]
+    c1lon, r1lat = n1.transform_points(c1, r1)
+    c2, r2 = n2.transform_points(c1lon, r1lat, DstToSrc=1)
+    gpi = (c2 > 0) * (c2 < n2cols) * (r2 > 0) * (r2 < n2rows)
+    print(f'Created {np.sum(gpi)} fake features')
+    return c1[gpi], r1[gpi], c2[gpi], r2[gpi]
+
+def fill_nan_gaps(array, distance=15):
+    """ Fill gaps in input raster
+
+    Parameters
+    ----------
+    array : 2D numpy.array
+        Input ratser with nan values
+    distance : int
+        Minimum size of gap to fill
+
+    Returns
+    -------
+    array : 2D numpy.array
+        Ratser with nan gaps field with nearest neigbour values
+
+    """
+    array = np.array(array)
+    dist, indi = distance_transform_edt(
+        np.isnan(array),
+        return_distances=True,
+        return_indices=True)
+    gpi = dist <= distance
+    r,c = indi[:,gpi]
+    array[gpi] = array[r,c]
+    return array
+
+def clean_velo_field(args, a, rpm, hpm, fill_size=1, med_filt_size=3):
+    """ Replace gaps with median filtered values """
+    a2 = np.array(a)
+    a2[(rpm * hpm) < args.quality_threshold] = np.nan
+    a3 = fill_nan_gaps(a2, fill_size)
+    a4 = median_filter(a3, med_filt_size)
+    gpi = np.isnan(a2) * np.isfinite(a4) 
+    a2[gpi] = a4[gpi]
+    return a2
 
 def get_deformation_elems(x, y, u, v, a):
     """ Compute deformation for given elements.
@@ -127,68 +239,35 @@ def get_deformation_nodes(x, y, u, v):
 
     return e1, e2, e3, tri_a, tri_p, tri.triangles
 
-def get_nansat(f):
-    """
-    Returns:
-    --------
-    nft : nansat.Nansat
-        sigma0_HH with spatial mean removed (helps feature tracking and plotting)
-    npm: nansat.Nansat
-        sigma0_HH without spatial mean removed (so pattern matching doesn't crash)
-    """
-    if 0:
-        n = get_n(f, bandName='sigma0_HH', remove_spatial_mean=True)
-        return n, n
-    n = Nansat(f)
-    start = n.time_coverage_start
-    ds = gdal.Open(n.filename+'/imagery_HH.tif')
-    hh = ds.ReadAsArray()
-    npm = Nansat.from_domain(n, array=hh)
-    hh -= get_spatial_mean(hh).astype('uint8') #remove mean
-    nft = Nansat.from_domain(n, array=hh)
-    for n in [nft, npm]:
-        n.set_metadata(dict(time_coverage_start=start))
-    return nft, npm
-
-def get_bbox_approx():
-    lon, lat = np.array([
-        (-109.4, 74.7), # TR
-        (-118.8, 67.5), # BR
-        (-161.3, 70.5), # BL: Barrow
-        (-153.9, 75.8), # TL
-        ]).T
-    return lon, lat
-
-
-def get_bbox():
-    lon, lat = get_bbox_approx()
-    x, y = NS_PROJ(lon, lat)
-    xav, yav = np.mean(x), np.mean(y)
-    dx = x.max() - x.min()
-    dy = y.max() - y.min()
-    factor = 1.4
-    return xav - factor*dx/2, xav + factor*dx/2, yav - factor*dy/2, yav + factor*dy/2
-
-def get_filename(t, index, n1, n2):
+def get_filename(args, t, index, n1, n2):
     fmt = '%Y%m%dT%H%M%SZ'
-    return t.substitute(dict(
-        index = index,
-        dto1 = n1.time_coverage_start.strftime(fmt),
-        dto2 = n2.time_coverage_start.strftime(fmt),
-        ))
+    return os.path.join(
+            args.outdir,
+            t.substitute(dict(
+                index = index,
+                dto1 = n1.time_coverage_start.strftime(fmt),
+                dto2 = n2.time_coverage_start.strftime(fmt),
+                )),
+            )
 
-def save_fig(fig, t, index, n1, n2):
-    figname = get_filename(t, index, n1, n2)
+def save_fig(args, fig, t, index, n1, n2):
+    figname = get_filename(args, t, index, n1, n2)
     os.makedirs(os.path.dirname(figname), exist_ok=True)
     print(f'Saving {figname}')
     fig.savefig(figname, bbox_inches='tight')
     plt.close()
 
-def save_npz(t, index, n1, n2, **kwargs):
-    fname = get_filename(t, index, n1, n2)
+def save_npz(args, t, index, n1, n2, **kwargs):
+    fname = get_filename(args, t, index, n1, n2)
     os.makedirs(os.path.dirname(fname), exist_ok=True)
     print(f'Saving {fname}')
     np.savez(fname, **kwargs)
+
+def load_npz(args, t, index, n1, n2):
+    fname = get_filename(args, t, index, n1, n2)
+    if os.path.exists(fname) and not args.force:
+        print(f'Loading {fname}')
+        return dict(np.load(fname))
 
 # image in stereographic projection
 def get_projected_hh(n, d, **kwargs):
@@ -197,7 +276,7 @@ def get_projected_hh(n, d, **kwargs):
     n.undo()
     return n1_hh_pro.astype(float)
 
-def plot_ft(index, n1ft, n2ft, c1, r1, c2, r2):
+def plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2):
     lon1b, lat1b = n1ft.get_border()
     lon2b, lat2b = n2ft.get_border()
     x1b, y1b = NS_PROJ(lon1b, lat1b)
@@ -214,8 +293,12 @@ def plot_ft(index, n1ft, n2ft, c1, r1, c2, r2):
     ax.plot(lon1b, lat1b, '.-', label='border_1', transform=ccrs.PlateCarree())
     ax.plot(lon2b, lat2b, '.-', label='border_2', transform=ccrs.PlateCarree())
     ax.legend()
-    t = Template('out/ft_keypoints/ft_keypoints_${dto1}-${dto2}_${index}.png')
-    save_fig(fig, t, index, n1ft, n2ft)
+    t = Template('ft_keypoints/ft_keypoints_${dto1}-${dto2}_${index}.png')
+    save_fig(args, fig, t, index, n1ft, n2ft)
+
+    if not args.use_real_features:
+        # don't make quiver plot since vectors are fake
+        return
 
     # Plot ice drift on top of image_1
     # - end points in image_1 coordinate system
@@ -232,10 +315,11 @@ def plot_ft(index, n1ft, n2ft, c1, r1, c2, r2):
     plt.imshow(hh, cmap='gray', vmin=vmin, vmax=vmax)
     plt.quiver(c1, r1, dc, dr, color='r', angles='xy', scale_units='xy')#, scale=0.2)
     plt.plot(n1lon2b, n1lat2b, 'k.-')
-    t = Template('out/ft_quiver/ft_quiver_${dto1}-${dto2}_${index}.png')
-    save_fig(fig, t, index, n1ft, n2ft)
+    t = Template('ft_quiver/ft_quiver_${dto1}-${dto2}_${index}.png')
+    save_fig(args, fig, t, index, n1ft, n2ft)
 
-def plot_pm(index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
+def plot_pm(args, index, n1ft, n2ft,
+        lon1pm, lat1pm, upm, vpm, apm, rpm, hpm, **kwargs):
     # compute ice drift speed [m/s]
     delta_t = (n2ft.time_coverage_start - n1ft.time_coverage_start).total_seconds()
     u = upm / delta_t
@@ -248,17 +332,17 @@ def plot_pm(index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
     ax = fig.add_subplot(121)
     quality = rpm*hpm
     im = ax.imshow(quality)
-    ax.contour(quality, levels=[QTHRESH])
+    ax.contour(quality, levels=[args.quality_threshold])
     fig.colorbar(im, shrink=.4)
     ax.set_title('rpm*hpm')
     #
     ax = fig.add_subplot(122)
-    im = ax.imshow(u)
-    ax.contour(quality, levels=[QTHRESH])
+    im = ax.imshow(u, vmin=-.25, vmax=.25)
+    ax.contour(quality, levels=[args.quality_threshold])
     ax.set_title('x velocity, m/s')
     fig.colorbar(im, shrink=.4)
-    t = Template('out/pm_quality/pm_quality_${dto1}-${dto2}_${index}.png')
-    save_fig(fig, t, index, n1ft, n2ft)
+    t = Template('pm_quality/pm_quality_${dto1}-${dto2}_${index}.png')
+    save_fig(args, fig, t, index, n1ft, n2ft)
 
     # plot final drift on image 1
     res = 2000 #m
@@ -281,7 +365,7 @@ def plot_pm(index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
     hh[hh==0] = np.nan
 
     # plot valid vectors in stereographic projection
-    gpi = (quality > QTHRESH)
+    gpi = (quality > args.quality_threshold)
     fig = plt.figure(figsize=(20,20))
     ax = plt.axes(projection=NS_CRS)
     im = ax.imshow(hh, vmin=vmin, vmax=vmax, cmap='gray',
@@ -300,8 +384,8 @@ def plot_pm(index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
         draw_labels=True, alpha=0.5, linestyle=':')
     ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
     ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
-    t = Template('out/pm_quiver/pm_quiver_${dto1}-${dto2}_${index}.png')
-    save_fig(fig, t, index, n1ft, n2ft)
+    t = Template('pm_quiver/pm_quiver_${dto1}-${dto2}_${index}.png')
+    save_fig(args, fig, t, index, n1ft, n2ft)
 
     # deformation
     e1, e2, e3, tri_a, tri_p, triangles = get_deformation_nodes(x1pm[gpi], y1pm[gpi], u[gpi], v[gpi])
@@ -311,9 +395,9 @@ def plot_pm(index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
     e3 *= 8640000
     for e,t,ttl in zip(
             [e1,e2,e3],
-            [Template('out/shear/shear_${dto1}-${dto2}_${index}.png'),
-                Template('out/divergence/divergence_${dto1}-${dto2}_${index}.png'),
-                Template('out/total-defor/total-defor_${dto1}-${dto2}_${index}.png'),
+            [Template('shear/shear_${dto1}-${dto2}_${index}.png'),
+                Template('divergence/divergence_${dto1}-${dto2}_${index}.png'),
+                Template('total-defor/total-defor_${dto1}-${dto2}_${index}.png'),
                 ],
             ['Shear [%/day]', 'Divergence [%/day]', 'Total deformation [%/day]']):
         vmin, vmax = np.percentile(e, [20,80])
@@ -334,44 +418,187 @@ def plot_pm(index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
             draw_labels=True, alpha=0.5, linestyle=':')
         ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
         ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
-        save_fig(fig, t, index, n1ft, n2ft)
+        save_fig(args, fig, t, index, n1ft, n2ft)
 
-def process_1pair(f1, f2, index):
+def plot_pm_clean(args, index, n1ft, n2ft,
+        lon1pm, lat1pm, upm, vpm, apm, rpm, hpm,
+        upm_clean, vpm_clean, **kwargs):
+    # compute ice drift speed [m/s]
+    delta_t = (n2ft.time_coverage_start - n1ft.time_coverage_start).total_seconds()
+    u = upm / delta_t
+    v = vpm / delta_t
+    u2 = upm_clean / delta_t
+    v2 = upm_clean / delta_t
+
+    # start points in stereoprojection
+    x1pm, y1pm = NS_PROJ(lon1pm, lat1pm)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(121)
+    im = ax.imshow(u, vmin=-.25, vmax=.25)
+    ax.set_title('x velocity, m/s')
+    fig.colorbar(im, shrink=.4)
+
+    ax = fig.add_subplot(122)
+    im = ax.imshow(u2, vmin=-.25, vmax=.25)
+    ax.set_title('Cleaned x velocity, m/s')
+    fig.colorbar(im, shrink=.4)
+
+    t = Template('clean-u/u_${dto1}-${dto2}_${index}.png')
+    save_fig(args, fig, t, index, n1ft, n2ft)
+
+    # plot final drift on image 1
+    res = 2000 #m
+    xav = x1pm.mean()
+    yav = y1pm.mean()
+    xmin, xmax, ymin, ymax = x1pm.min(), x1pm.max(), y1pm.min(), y1pm.max()
+    dx = .2*(xmax-xav)
+    dy = .2*(ymax-yav)
+    xmin -= dx
+    xmax += dx
+    ymin -= dy
+    ymax += dy
+    d = Domain(NS_SRS, '-te %f %f %f %f -tr %f %f' % (
+        xmin, ymin, xmax, ymax, res, res))
+    d_extent = [xmin, xmax, ymin, ymax]
+    hh = n1ft[1]
+    (vmin,), (vmax,) = Figure(hh).clim_from_histogram(ratio=.9)
+    # n1pro = get_projected_hh(n1ft, d)# nearest neighbour
+    hh = get_projected_hh(n1ft, d, resample_alg=1)#1:bilinear - better than NN, tps=True
+    hh[hh==0] = np.nan
+
+    # plot valid vectors in stereographic projection
+    gpi = np.isfinite(u2*v2)
+    fig = plt.figure(figsize=(20,20))
+    ax = plt.axes(projection=NS_CRS)
+    im = ax.imshow(hh, vmin=vmin, vmax=vmax, cmap='gray',
+            origin='upper', zorder=0, extent=d_extent)
+    # plt.colorbar(im, shrink=0.5)
+    quiv = ax.quiver(x1pm[gpi], y1pm[gpi], u2[gpi], v2[gpi], rpm[gpi])#, scale=2)
+    fig.colorbar(quiv, shrink=0.5)
+    #plt.quiverkey(quiv, 110000, -770000, 0.05, '0.05 m/s', coordinates='data')
+    ax.set_title('Ice drift speed [m/s]')
+    ax.add_feature(LAND_50M, edgecolor='black')
+
+    ax.set_xlim([xmin, xmax])
+    ax.set_ylim([ymin, ymax])
+
+    ax.gridlines(linewidth=2, color='m', 
+        draw_labels=True, alpha=0.5, linestyle=':')
+    ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
+    ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
+    t = Template('clean-quiver/quiver_${dto1}-${dto2}_${index}.png')
+    save_fig(args, fig, t, index, n1ft, n2ft)
+
+    # deformation
+    e1, e2, e3, tri_a, tri_p, triangles = get_deformation_nodes(x1pm[gpi], y1pm[gpi], u2[gpi], v2[gpi])
+    # convert deformations to %/day
+    e1 *= 8640000
+    e2 *= 8640000
+    e3 *= 8640000
+    for e,t,ttl in zip(
+            [e1,e2,e3],
+            [
+                Template('clean-shear/shear_${dto1}-${dto2}_${index}.png'),
+                Template('clean-divergence/divergence_${dto1}-${dto2}_${index}.png'),
+                Template('clean-total-defor/total-defor_${dto1}-${dto2}_${index}.png'),
+                ],
+            ['Shear [%/day]', 'Divergence [%/day]', 'Total deformation [%/day]']):
+        vmin, vmax = np.percentile(e, [20,80])
+        fig = plt.figure(figsize=(20,20))
+        ax = plt.axes(projection=NS_CRS)
+        im = ax.tripcolor(x1pm[gpi], y1pm[gpi],
+                          triangles=triangles, facecolors=e,
+                          vmin=vmin, vmax=vmax,
+                          edgecolors='k', linewidth=1)
+        fig.colorbar(im, shrink=0.5)
+        ax.set_title(ttl)
+        ax.add_feature(LAND_50M, edgecolor='black')
+
+        ax.set_xlim([xmin, xmax])
+        ax.set_ylim([ymin, ymax])
+
+        ax.gridlines(linewidth=2, color='m',
+            draw_labels=True, alpha=0.5, linestyle=':')
+        ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
+        ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
+        save_fig(args, fig, t, index, n1ft, n2ft)
+
+def process_1pair(args, f1, f2, index):
     # create Nansat objects with one band only. 
     n1ft, n1pm = get_nansat(f1)
     n2ft, n2pm = get_nansat(f2)
     print(f'1st image start: {n1ft.time_coverage_start}')
     print(f'2nd image start: {n2ft.time_coverage_start}')
 
-    # Run Feature Tracking
-    # - get start/end coordinates in the image coordinate system (colums/rows)
-    # - works best with spatial mean removed (use `n1ft`, `n2ft`)
-    if 1:
-        #v1: feature tracking takes HH with spatial mean removed
-        c1, r1, c2, r2 = feature_tracking(n1ft, n2ft, nFeatures=100000,
-                ratio_test=0.6, domainMargin=0)
+    if args.use_real_features:
+        # Run Feature Tracking
+        # - get start/end coordinates in the image coordinate system (colums/rows)
+        # - works best with spatial mean removed (use `n1ft`, `n2ft`)
+        if 1:
+            #v1: feature tracking takes HH with spatial mean removed
+            c1, r1, c2, r2 = feature_tracking(n1ft, n2ft, nFeatures=100000,
+                    ratio_test=0.6, domainMargin=0)
+        else:
+            #v1: feature tracking takes HH without spatial mean removed
+            c1, r1, c2, r2 = feature_tracking(n1pm, n2pm, nFeatures=100000,
+                    ratio_test=0.6, domainMargin=0)
+
+        t = Template('npz_files/ft_${dto1}-${dto2}_${index}.npz')
+        save_npz(args, t, index, n1ft, n2ft, c1=c1, r1=r1, c2=c2, r2=r2)
     else:
-        #v2: feature tracking takes HH without spatial mean removed
-        c1, r1, c2, r2 = feature_tracking(n1pm, n2pm, nFeatures=100000,
-                ratio_test=0.6, domainMargin=0)
-    t = Template('out/npz_files/ft_${dto1}-${dto2}_${index}.npz')
-    save_npz(t, index, n1ft, n2ft, c1=c1, r1=r1, c2=c2, r2=r2)
-    plot_ft(index, n1ft, n2ft, c1, r1, c2, r2)
+        # Fake feature tracking to get more starting points for pattern matching
+        c1, r1, c2, r2 = fake_feature_tracking(n1pm, n2pm)
+    plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2)
+    lon1pm, lat1pm = n1ft.get_geolocation_grids(200)
 
     # Pattern matching
     # lon/lat grids for image_1
-    lon1pm, lat1pm = n1ft.get_geolocation_grids(200)
-    # Run Pattern Matching for each element in lon1pm/lat1pm matrix
-    # ice displacement upm and vpm are returned in meters in Stereographic projection
-    upm, vpm, apm, rpm, hpm, lon2pm, lat2pm = pattern_matching(
-        lon1pm, lat1pm, n1pm, c1, r1, n2pm, c2, r2,
-        min_border=300, max_border=300,
-        img_size=50, srs=NS_SRS)
-    t = Template('out/npz_files/pm_${dto1}-${dto2}_${index}.npz')
-    save_npz(t, index, n1ft, n2ft, upm=upm, vpm=vpm, apm=apm, rpm=rpm, hpm=hpm)
-    plot_pm(index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm)
+    t = Template('npz_files/pm_${dto1}-${dto2}_${index}.npz')
+    pm_results = load_npz(args, t, index, n1ft, n2ft)
+    if pm_results is None:
+        print('Running pattern matching...')
+        pm_results = dict(lon1pm=lon1pm, lat1pm=lat1pm)
+        # Run Pattern Matching for each element in lon1pm/lat1pm matrix
+        # ice displacement upm and vpm are returned in meters in Stereographic projection
+        (
+                pm_results['upm'], pm_results['vpm'],
+                pm_results['apm'], pm_results['rpm'], pm_results['hpm'],
+                pm_results['lon2pm'], pm_results['lat2pm'],
+                ) = pattern_matching(
+                        lon1pm, lat1pm, n1pm, c1, r1, n2pm, c2, r2,
+                        min_border=500, max_border=500,
+                        srs=NS_SRS, img_size=71,
+                        angles=[-10, -5, 0, 5, 10],
+                        threads=10,
+                        )
+        pm_results['hh'] = n1ft[1]
+        pm_results['upm_clean'] = clean_velo_field(args,
+                pm_results['upm'], pm_results['rpm'], pm_results['hpm'])
+        pm_results['vpm_clean'] = clean_velo_field(args,
+                pm_results['vpm'], pm_results['rpm'], pm_results['hpm'])
+        save_npz(args, t, index, n1ft, n2ft, **pm_results)
+
+    gpi = np.isfinite(pm_results['upm_clean'] * pm_results['vpm_clean'])
+    print(f'Detected {np.sum(gpi)} good drift vectors')
+
+    plot_pm(args, index, n1ft, n2ft, **pm_results)
+    plot_pm_clean(args, index, n1ft, n2ft, **pm_results)
 
 def run():
+    args = parse_args()
+    rs2dir = os.getenv('RS2_dir')
+
+    if args.test:
+        # if testing just run 1 example
+        f1 = 'RS2_OK37499_PK364900_DK322205_SCWA_20130224_023727_HH_HV_SGF'
+        f2 = 'RS2_OK37500_PK364951_DK322250_SCWA_20130225_020811_HH_HV_SGF'
+        process_1pair(args,
+                os.path.join(rs2dir, f1),
+                os.path.join(rs2dir, f2),
+                0)
+        return
+
     df = pd.read_csv('out/RS2_pairs.csv',
             names=["File1","File2","Interval","Overlap"], skiprows=1,
             dtype={"File1":str, "File2":str, "Interval":float, "Overlap":float})
@@ -381,9 +608,9 @@ def run():
         print(f'Overlap = {overlap}')
         print(f'Time interval = {interval}')
         try:
-            process_1pair(
-                    os.path.join(os.getenv('RS2_dir'), f1),
-                    os.path.join(os.getenv('RS2_dir'), f2),
+            process_1pair(args,
+                    os.path.join(rs2dir, f1),
+                    os.path.join(rs2dir, f2),
                     index)
         except:
             continue

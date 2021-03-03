@@ -28,3 +28,15 @@ do
     edir=$rootdir/${run:0:$((n-n_-1))}
     ./eval_wrapper_1dir.sh $edir $STEP $MOORINGS_MASK
 done
+
+[[ $STEP != 3 ]] && exit 0
+# compare scalar and drift metrics
+batch_name=$(basename $RUNLIST)
+batch_name=${batch_name%.csv}
+odir=figs/comp_runs/comp_runs.$batch_name
+for t in scalars drift
+do
+    s=comp_runs_$t
+    singularity exec --cleanenv $PYNEXTSIM_SIF \
+        ./${s}.py config-files/${s}.${batch_name}.cfg -o $odir
+done
