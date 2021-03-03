@@ -318,7 +318,8 @@ def plot_ft(args, index, n1ft, n2ft, c1, r1, c2, r2):
     t = Template('ft_quiver/ft_quiver_${dto1}-${dto2}_${index}.png')
     save_fig(args, fig, t, index, n1ft, n2ft)
 
-def plot_pm(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
+def plot_pm(args, index, n1ft, n2ft,
+        lon1pm, lat1pm, upm, vpm, apm, rpm, hpm, **kwargs):
     # compute ice drift speed [m/s]
     delta_t = (n2ft.time_coverage_start - n1ft.time_coverage_start).total_seconds()
     u = upm / delta_t
@@ -419,13 +420,15 @@ def plot_pm(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
         ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
         save_fig(args, fig, t, index, n1ft, n2ft)
 
-def plot_pm_clean(args, index, n1ft, n2ft, lon1pm, lat1pm, upm, vpm, apm, rpm, hpm):
+def plot_pm_clean(args, index, n1ft, n2ft,
+        lon1pm, lat1pm, upm, vpm, apm, rpm, hpm,
+        upm_clean, vpm_clean, **kwargs):
     # compute ice drift speed [m/s]
     delta_t = (n2ft.time_coverage_start - n1ft.time_coverage_start).total_seconds()
     u = upm / delta_t
     v = vpm / delta_t
-    u2 = clean_velo_field(args, u, rpm, hpm)
-    v2 = clean_velo_field(args, v, rpm, hpm)
+    u2 = upm_clean / delta_t
+    v2 = upm_clean / delta_t
 
     # start points in stereoprojection
     x1pm, y1pm = NS_PROJ(lon1pm, lat1pm)
@@ -555,13 +558,13 @@ def process_1pair(args, f1, f2, index):
     pm_results = load_npz(args, t, index, n1ft, n2ft)
     if pm_results is None:
         print('Running pattern matching...')
-        pm_results = dict()
+        pm_results = dict(lon1pm=lon1pm, lat1pm=lat1pm)
         # Run Pattern Matching for each element in lon1pm/lat1pm matrix
         # ice displacement upm and vpm are returned in meters in Stereographic projection
         (
                 pm_results['upm'], pm_results['vpm'],
                 pm_results['apm'], pm_results['rpm'], pm_results['hpm'],
-                lon2pm, lat2pm,
+                pm_results['lon2pm'], pm_results['lat2pm'],
                 ) = pattern_matching(
                         lon1pm, lat1pm, n1pm, c1, r1, n2pm, c2, r2,
                         min_border=500, max_border=500,
@@ -569,6 +572,7 @@ def process_1pair(args, f1, f2, index):
                         angles=[-10, -5, 0, 5, 10],
                         threads=10,
                         )
+        pm_results['hh'] = n1ft[1]
         pm_results['upm_clean'] = clean_velo_field(args,
                 pm_results['upm'], pm_results['rpm'], pm_results['hpm'])
         pm_results['vpm_clean'] = clean_velo_field(args,
@@ -578,16 +582,8 @@ def process_1pair(args, f1, f2, index):
     gpi = np.isfinite(pm_results['upm_clean'] * pm_results['vpm_clean'])
     print(f'Detected {np.sum(gpi)} good drift vectors')
 
-    plot_pm(args, index, n1ft, n2ft,
-                lon1pm, lat1pm,
-                pm_results['upm'], pm_results['vpm'],
-                pm_results['apm'], pm_results['rpm'], pm_results['hpm'],
-                )
-    plot_pm_clean(args, index, n1ft, n2ft,
-                lon1pm, lat1pm,
-                pm_results['upm'], pm_results['vpm'],
-                pm_results['apm'], pm_results['rpm'], pm_results['hpm'],
-                )
+    plot_pm(args, index, n1ft, n2ft, **pm_results)
+    plot_pm_clean(args, index, n1ft, n2ft, **pm_results)
 
 def run():
     args = parse_args()
