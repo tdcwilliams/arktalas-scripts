@@ -34,9 +34,9 @@ done
 batch_name=$(basename $RUNLIST)
 batch_name=${batch_name%.csv}
 odir=figs/comp_runs/comp_runs.$batch_name
-for t in scalars drift
+for eval_type in scalars drift
 do
-    s=comp_runs_$t
+    scr=comp_runs_${eval_type} #comparison script (without .py extension)
     singularity exec --cleanenv $PYNEXTSIM_SIF \
-        ./${s}.py config-files/${s}.${batch_name}.cfg -o $odir
+        ./${scr}.py config-files/${scr}.${batch_name}.cfg -o $odir
 done
