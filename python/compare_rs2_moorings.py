@@ -59,13 +59,38 @@ def match_files(nci, xy1, xy2):
     y, i0, i1 = reduce_range(y, ymin, ymax)
     return x, y, [i0, i1+1, j0, j1+1]
 
+def time_iterator(nci, dto1, dto2):
+
+    # default time resolution
+    dt_ref = nci.datetimes[1] - nci.datetimes[0]
+
+    # 1st time step info
+    dto1_, time_index1 = nci.nearestDate(dto1)
+    if dto1_ - .5*dt_ref < dto1:
+        time_index1 -= 1
+        dto1_ = nci.datetimes[time_index1]
+    dt1 = (dto1_ + .5*dt_ref - dto1).total_seconds()
+
+    # last time step info
+    dto2_, time_index2 = nci.nearestDate(dto2)
+    if dto2_ + .5*dt_ref > dto2:
+        time_index2 += 1
+        dto2_ = nci.datetimes[time_index2]
+    dt2 = (dto2 - dto2_ + .5*dt_ref).total_seconds()
+
+    # Yield the 1st time index and integration time
+    yield time_index1, dt1
+    for time_index in range(time_index1+1, time_index2):
+        # Yield the intermediary time indices and integration times
+        yield time_index, dt_ref.total_seconds()
+    # Yield the last time index and integration time
+    yield time_index2, dt2
+
 def get_interpolators(time_index, nci, x, y, ij_range):
     siu = nci.get_var(
             'siu', ij_range=ij_range, time_index=time_index).values
     siv = nci.get_var(
             'siv', ij_range=ij_range, time_index=time_index).values
-    rgi = RegularGridInterpolator([y, x], siu,
-            bounds_error=False, fill_value=np.nan)
     return [RegularGridInterpolator([y, x], a,
             bounds_error=False, fill_value=np.nan)
             for a in [siu, siv]]
@@ -75,55 +100,35 @@ def integrate_one_time_step(x0, y0, dt, *args):
     rgi_uv = get_interpolators(*args)
     u0, v0 = np.array([rgi(dst_p) for rgi in rgi_uv])
     return x0 + u0*dt, y0 + v0*dt
-    
-def integrate_velocities(x0, y0, dto1, dto2, nci, xy_info):
 
-    tres = nci.datetimes[1] - nci.datetimes[0]
-    dt_ = tres.total_seconds()
+def integrate_velocities(x0, y0, dto1, dto2,
+        nci, xy_info):
 
-    # 1st time step info
-    dto1_, time_index1 = nci.nearestDate(dto1)
-    if dto1_ - .5*tres < dto1:
-        time_index1 -= 1
-        dto1_ = nci.datetimes[time_index1]
-    dt1 = (dto1_ + .5*tres - dto1).total_seconds()
-
-    # last time step info
-    dto2_, time_index2 = nci.nearestDate(dto2)
-    if dto2_ + .5*tres > dto2:
-        time_index2 += 1
-        dto2_ = nci.datetimes[time_index2]
-    dt2 = (dto2 - dto2_ + .5*tres).total_seconds()
-
-    # integrate
-    its_args = [nci, *xy_info]
-    x, y = integrate_one_time_step(
-            x0, y0, dt1, time_index1, *its_args)
-    delt = dt1
-    for time_index in range(time_index1+1, time_index2):
+    x = np.array(x0)
+    y = np.array(y0)
+    dt_tot = 0
+    for i, dt_i in time_iterator(nci, dto1, dto2):
         x, y = integrate_one_time_step(
-                x, y, dt_, time_index, *its_args)
-        delt += dt_
-    x, y = integrate_one_time_step(
-            x, y, dt2, time_index2, *its_args)
-    delt += dt2
-    assert(delt == (dto2-dto1).total_seconds())
-    return (x, y), delt
+                x, y, dt_i, i, nci, *xy_info)
+        dt_tot += dt_i
+        print(i, np.any(np.isnan(x*y)))
+    assert(dt_tot == (dto2-dto1).total_seconds())
+    return (x, y), dt_tot
 
-def compare(xy1, xy2, xy2_mod, delt):
+def compare(xy1, xy2, xy2_mod, dt_tot):
     fac = 24*3600*1e-3 #m/s to km/day
     dx_obs, dy_obs = [xy2[i] - xy1[i] for i in range(2)]
     dx_mod, dy_mod = [xy2_mod[i] - xy1[i] for i in range(2)]
     # bias in speed
-    spd_obs = fac*np.hypot(dx_obs, dy_obs)/delt
-    spd_mod = fac*np.hypot(dx_obs, dy_obs)/delt
+    spd_obs = fac*np.hypot(dx_obs, dy_obs)/dt_tot
+    spd_mod = fac*np.hypot(dx_obs, dy_obs)/dt_tot
     bias_speed = np.mean(spd_mod - spd_obs)
     print(f'Bias in speed = {bias_speed} km/day')
     # RMSE in speed
     rmse_speed = np.sqrt(np.mean((spd_mod - spd_obs)**2))
     print(f'RMSE in speed = {rmse_speed} km/day')
     # Vector RMSE
-    vdiff = fac*np.hypot(dx_mod - dx_obs, dy_mod - dy_obs)/delt
+    vdiff = fac*np.hypot(dx_mod - dx_obs, dy_mod - dy_obs)/dt_tot
     vrmse = np.sqrt(np.mean(vdiff**2))
     print(f'VMRSE = {vrmse} km/day')
 
@@ -132,9 +137,9 @@ def run():
     dto1, dto2, pm_results, xy1, xy2 = read_rs2_file(args.rs2_file) 
     nci = mnu.nc_getinfo(args.moorings_file)
     xy_info = match_files(nci, xy1, xy2)
-    xy2_ns, delt = integrate_velocities(
+    xy2_ns, dt_tot = integrate_velocities(
             *xy1, dto1, dto2, nci, xy_info)
-    compare(xy1, xy2, xy2_ns, delt)
+    compare(xy1, xy2, xy2_ns, dt_tot)
 
 if __name__ == '__main__':
     run()
