@@ -98,16 +98,16 @@ def integrate_velocities(x0, y0, dt01, dto2, nci, xy_info):
     dt2 = (dto2 - dto2_ + .5*tres).total_seconds()
 
     # integrate
-    args = [nci, *xy_info]
+    its_args = [nci, *xy_info]
     x, y = integrate_one_time_step(
-            x0, y0, dt1, time_index1, *args)
+            x0, y0, dt1, time_index1, *its_args)
     delt = dt1
     for time_index in range(time_index1+1, time_index2):
         x, y = integrate_one_time_step(
-                x, y, dt_, time_index, *args)
+                x, y, dt_, time_index, *its_args)
         delt += dt_
     x, y = integrate_one_time_step(
-            x, y, dt2, time_index2, *args)
+            x, y, dt2, time_index2, *its_args)
     delt += dt2
     assert(delt == (dto2-dto1).total_seconds())
     return (x, y), delt
@@ -131,9 +131,12 @@ def compare(xy1, xy2, xy2_mod, delt):
 
 def run():
     args = parse_args()
-    xy_info = match_files(nci, xy1, xy2)]
+    xy_info = match_files(nci, xy1, xy2)
     dto1, dto2, pm_results, xy1, xy2 = read_rs2_file(args.rs2_file) 
     nci = mnu.nc_getinfo(args.mooring_file)
     xy2_ns, delt = integrate_velocities(
             *xy1, dto1, dto2, nci, xy_info)
     compare(xy1, xy2, xy2_ns, delt)
+
+if __name__ == '__main__':
+    run()
