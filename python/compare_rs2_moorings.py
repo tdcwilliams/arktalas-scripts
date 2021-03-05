@@ -2,6 +2,7 @@
 import os
 from argparse import ArgumentParser
 import numpy as np
+import datetime as dt
 
 from scipy.interpolate import RegularGridInterpolator
 
@@ -12,26 +13,32 @@ NS_PROJ = ProjectionInfo()
 
 def parse_args():
     p = ArgumentParser('Script to compare moorings with RS2-derived drift')
-    p.add_argument('outdir', help='Where to save results')
-    p.add_argument('moorings_file', help='path to moorings file')
     p.add_argument('rs2_file', help='path to npz file with pattern matching')
+    p.add_argument('moorings_file', help='path to moorings file')
+    p.add_argument('outdir', help='Where to save results')
     return p.parse_args()
 
 def read_rs2_file(rs2_file):
+    print(f'Reading                 : {rs2_file}')
     # get times
     basename, _ = os.path.splitext(os.path.basename(rs2_file))
     dto1, dto2 = [
             dt.datetime.strptime(s, '%Y%m%dT%H%M%SZ')
-            for s in basename.split('_').split('-')]
+            for s in basename.split('_')[1].split('-')]
+    print(f'Start                   : {dto1}')
+    print(f'End                     : {dto2}')
+    print(f'Interval                : {dto2 - dto1}')
 
-    # get spatial info
+    # get spatial info from pattern-matching results
     pm_results = dict(np.load(rs2_file))
     gpi = np.isfinite(pm_results['upm_clean']*pm_results['vpm_clean'])
     xy1 = NS_PROJ.pyproj(
             pm_results['lon1pm'][gpi], pm_results['lat1pm'][gpi])
     xy2 = NS_PROJ.pyproj(
             pm_results['lon2pm'][gpi], pm_results['lat2pm'][gpi])
-    return dt01, dto2, pm_results, xy1, xy2
+
+    print(f'Number of drift vectors : {len(gpi)}')
+    return dto1, dto2, pm_results, xy1, xy2
 
 def match_files(nci, xy1, xy2):
     x, y = NS_PROJ.pyproj(*nci.get_lonlat())
@@ -131,9 +138,9 @@ def compare(xy1, xy2, xy2_mod, delt):
 
 def run():
     args = parse_args()
-    xy_info = match_files(nci, xy1, xy2)
     dto1, dto2, pm_results, xy1, xy2 = read_rs2_file(args.rs2_file) 
-    nci = mnu.nc_getinfo(args.mooring_file)
+    nci = mnu.nc_getinfo(args.moorings_file)
+    xy_info = match_files(nci, xy1, xy2)
     xy2_ns, delt = integrate_velocities(
             *xy1, dto1, dto2, nci, xy_info)
     compare(xy1, xy2, xy2_ns, delt)
