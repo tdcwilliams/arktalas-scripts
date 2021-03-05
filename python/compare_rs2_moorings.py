@@ -37,7 +37,7 @@ def read_rs2_file(rs2_file):
     xy2 = NS_PROJ.pyproj(
             pm_results['lon2pm'][gpi], pm_results['lat2pm'][gpi])
 
-    print(f'Number of drift vectors : {len(gpi)}')
+    print(f'Number of drift vectors : {np.sum(gpi)}')
     return dto1, dto2, pm_results, xy1, xy2
 
 def match_files(nci, xy1, xy2):
@@ -57,35 +57,26 @@ def match_files(nci, xy1, xy2):
         return a_, lst.index(amin_), lst.index(amax_)
     x, j0, j1 = reduce_range(x, xmin, xmax)
     y, i0, i1 = reduce_range(y, ymin, ymax)
-    return x, y, [i0, i1, j0, j1]
+    return x, y, [i0, i1+1, j0, j1+1]
 
 def get_interpolators(time_index, nci, x, y, ij_range):
-    tres = nci.datetimes[1] - nci.datetimes[0]
-    dto1_, i1 = nci.nearestDate(dto1)
-    if dto1_ - .5*tres < dto1:
-        i1_ -= 1
-        dto1_ = nci.datetimes[i1_]
-    dto2_, i2 = nci.nearestDate(dto2)
-    if dto2_ + .5*tres > dto2:
-        i2_ += 1
-        dto2_ = nci.datetimes[i2_]
-
-    dtimes = nci.date2num(nci.datetimes[i1_:i2_])
     siu = nci.get_var(
             'siu', ij_range=ij_range, time_index=time_index).values
     siv = nci.get_var(
             'siv', ij_range=ij_range, time_index=time_index).values
-    return [RegularGridInterpolator([x, y], a,
+    rgi = RegularGridInterpolator([y, x], siu,
+            bounds_error=False, fill_value=np.nan)
+    return [RegularGridInterpolator([y, x], a,
             bounds_error=False, fill_value=np.nan)
             for a in [siu, siv]]
 
 def integrate_one_time_step(x0, y0, dt, *args):
-    dst_p = np.array([x0, y0]).T
+    dst_p = np.array([y0, x0]).T
     rgi_uv = get_interpolators(*args)
-    u0, v0 = np.array([rgi(dst_p) for rgi in rgi_uv]).T
+    u0, v0 = np.array([rgi(dst_p) for rgi in rgi_uv])
     return x0 + u0*dt, y0 + v0*dt
     
-def integrate_velocities(x0, y0, dt01, dto2, nci, xy_info):
+def integrate_velocities(x0, y0, dto1, dto2, nci, xy_info):
 
     tres = nci.datetimes[1] - nci.datetimes[0]
     dt_ = tres.total_seconds()
@@ -122,7 +113,7 @@ def integrate_velocities(x0, y0, dt01, dto2, nci, xy_info):
 def compare(xy1, xy2, xy2_mod, delt):
     fac = 24*3600*1e-3 #m/s to km/day
     dx_obs, dy_obs = [xy2[i] - xy1[i] for i in range(2)]
-    dx_mod, dy_mod = [xy2_ns[i] - xy1[i] for i in range(2)]
+    dx_mod, dy_mod = [xy2_mod[i] - xy1[i] for i in range(2)]
     # bias in speed
     spd_obs = fac*np.hypot(dx_obs, dy_obs)/delt
     spd_mod = fac*np.hypot(dx_obs, dy_obs)/delt
