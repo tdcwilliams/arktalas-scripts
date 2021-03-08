@@ -166,12 +166,12 @@ def run():
     args = get_arg_parser().parse_args()
     dto1, dto2, pm_results, xy1, gpi_rs2 = read_rs2_file(args.rs2_file) 
     nci = mnu.nc_getinfo(args.moorings_file)
-    tg = TrajectoryGenerator(nci, NS_PROJ, xy1, xy2)
-    xy2_ns, dt_tot = tg.integrate_velocities(*xy1, dto1, dto2)
+    tg = TrajectoryGenerator(nci, NS_PROJ, xy1, expansion_factor=1.4)
     (xt, yt, dtimes, time_indices, sic_av,
-            ) = tg0.integrate_velocities(*xy1, dto1, dto2)
+            ) = tg.integrate_velocities(*xy1, dto1, dto2)
     dx_mod = xt[:,-1] - xt[:,0]
     dy_mod = yt[:,-1] - yt[:,0]
+    delta_t = (dto2 -dto1).total_seconds()
     bias_speed, rmse_speed, vrmse = compare(
             dx_mod, dy_mod,
             pm_results['upm_clean'][gpi_rs2],
