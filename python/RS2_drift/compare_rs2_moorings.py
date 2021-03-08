@@ -146,30 +146,38 @@ class TrajectoryGenerator:
         return Grid(*np.meshgrid(self.x, self.y),
                 projection=self.projection)
 
-def compare(xy1, xy2, xy2_mod, dt_tot):
-    fac = 24*3600*1e-3 #m/s to km/day
-    dx_obs, dy_obs = [xy2[i] - xy1[i] for i in range(2)]
-    dx_mod, dy_mod = [xy2_mod[i] - xy1[i] for i in range(2)]
+def compare(dx_obs, dy_obs, dx_mod, dy_mod, dt_tot):
+    unit_fac = 24*3600*1e-3 #m/s to km/day
     # bias in speed
-    spd_obs = fac*np.hypot(dx_obs, dy_obs)/dt_tot
-    spd_mod = fac*np.hypot(dx_obs, dy_obs)/dt_tot
-    bias_speed = np.mean(spd_mod - spd_obs)
+    spd_obs = unit_fac*np.hypot(dx_obs, dy_obs)/dt_tot
+    spd_mod = unit_fac*np.hypot(dx_mod, dy_mod)/dt_tot
+    bias_speed = np.nanmean(spd_mod - spd_obs)
     print(f'Bias in speed = {bias_speed} km/day')
     # RMSE in speed
-    rmse_speed = np.sqrt(np.mean((spd_mod - spd_obs)**2))
+    rmse_speed = np.sqrt(np.nanmean((spd_mod - spd_obs)**2))
     print(f'RMSE in speed = {rmse_speed} km/day')
     # Vector RMSE
-    vdiff = fac*np.hypot(dx_mod - dx_obs, dy_mod - dy_obs)/dt_tot
-    vrmse = np.sqrt(np.mean(vdiff**2))
+    vdiff = unit_fac*np.hypot(dx_mod - dx_obs, dy_mod - dy_obs)/dt_tot
+    vrmse = np.sqrt(np.nanmean(vdiff**2))
     print(f'VMRSE = {vrmse} km/day')
+    return bias_speed, rmse_speed, vrmse
 
 def run():
     args = get_arg_parser().parse_args()
-    dto1, dto2, pm_results, xy1, xy2 = read_rs2_file(args.rs2_file) 
+    dto1, dto2, pm_results, xy1, gpi_rs2 = read_rs2_file(args.rs2_file) 
     nci = mnu.nc_getinfo(args.moorings_file)
     tg = TrajectoryGenerator(nci, NS_PROJ, xy1, xy2)
     xy2_ns, dt_tot = tg.integrate_velocities(*xy1, dto1, dto2)
-    compare(xy1, xy2, xy2_ns, dt_tot)
+    (xt, yt, dtimes, time_indices, sic_av,
+            ) = tg0.integrate_velocities(*xy1, dto1, dto2)
+    dx_mod = xt[:,-1] - xt[:,0]
+    dy_mod = yt[:,-1] - yt[:,0]
+    bias_speed, rmse_speed, vrmse = compare(
+            dx_mod, dy_mod,
+            pm_results['upm_clean'][gpi_rs2],
+            pm_results['vpm_clean'][gpi_rs2],
+            delta_t,
+            )
 
 if __name__ == '__main__':
     run()
