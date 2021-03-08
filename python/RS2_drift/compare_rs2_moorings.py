@@ -164,7 +164,13 @@ def compare(dx_obs, dy_obs, dx_mod, dy_mod, dt_tot):
 
 def run():
     args = get_arg_parser().parse_args()
+
+    # read RS2 results
     dto1, dto2, pm_results, xy1, gpi_rs2 = read_rs2_file(args.rs2_file) 
+    dx_obs = pm_results['upm_clean'][gpi_rs2]
+    dy_obs = pm_results['vpm_clean'][gpi_rs2]
+
+    # process neXtSIM results
     nci = mnu.nc_getinfo(args.moorings_file)
     tg = TrajectoryGenerator(nci, NS_PROJ, xy1, expansion_factor=1.4)
     (xt, yt, dtimes, time_indices, sic_av,
@@ -172,12 +178,27 @@ def run():
     dx_mod = xt[:,-1] - xt[:,0]
     dy_mod = yt[:,-1] - yt[:,0]
     delta_t = (dto2 -dto1).total_seconds()
+
+    # compare mean differences
     bias_speed, rmse_speed, vrmse = compare(
-            dx_mod, dy_mod,
-            pm_results['upm_clean'][gpi_rs2],
-            pm_results['vpm_clean'][gpi_rs2],
-            delta_t,
-            )
+            dx_mod, dy_mod, dx_obs, dy_obs, delta_t)
+
+    # plot
+    grid = tg.get_grid()
+    fig, ax = grid.plot(sic_av, clabel='neXtSIM concentration')
+    ax.quiver(*xy1, dx_obs, dy_obs,
+            color='r', units='xy', scale=.5, label='RS2')
+    ax.quiver(*xy1, dx_mod, dy_mod,
+            color='g', units='xy', scale=.5, label='NS')
+    ax.legend()
+    os.makedirs(args.outdir, exist_ok=True)
+    figname = os.path.join(
+        args.outdir,
+        os.path.basename(args.rs2_file).replace('npz', 'png')
+        )
+    print(f'Saving {figname}')
+    fig.savefig(figname)
+
 
 if __name__ == '__main__':
     run()
