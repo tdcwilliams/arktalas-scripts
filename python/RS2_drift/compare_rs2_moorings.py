@@ -7,16 +7,17 @@ import datetime as dt
 from scipy.interpolate import RegularGridInterpolator
 
 from pynextsim.projection_info import ProjectionInfo
+from pynextsim.gridding import Grid
 import mod_netcdf_utils as mnu
 
 NS_PROJ = ProjectionInfo()
 
-def parse_args():
+def get_arg_parser():
     p = ArgumentParser('Script to compare moorings with RS2-derived drift')
     p.add_argument('rs2_file', help='path to npz file with pattern matching')
     p.add_argument('moorings_file', help='path to moorings file')
     p.add_argument('outdir', help='Where to save results')
-    return p.parse_args()
+    return p
 
 def read_rs2_file(rs2_file):
     print(f'Reading                 : {rs2_file}')
@@ -34,20 +35,30 @@ def read_rs2_file(rs2_file):
     gpi = np.isfinite(pm_results['upm_clean']*pm_results['vpm_clean'])
     xy1 = NS_PROJ.pyproj(
             pm_results['lon1pm'][gpi], pm_results['lat1pm'][gpi])
-    xy2 = NS_PROJ.pyproj(
-            pm_results['lon2pm'][gpi], pm_results['lat2pm'][gpi])
-
     print(f'Number of drift vectors : {np.sum(gpi)}')
-    return dto1, dto2, pm_results, xy1, xy2
+    return dto1, dto2, pm_results, xy1, gpi
 
-def match_files(nci, xy1, xy2):
-    x, y = NS_PROJ.pyproj(*nci.get_lonlat())
-    x = x[0] 
-    y = y[:,0].flatten()
-    xmin = np.min([xy1[0].min(), xy2[0].min()])
-    xmax = np.max([xy1[0].max(), xy2[0].max()])
-    ymin = np.min([xy1[1].min(), xy2[1].min()])
-    ymax = np.max([xy1[1].max(), xy2[1].max()])
+class TrajectoryGenerator:
+    def __init__(self, nci, projection, xy1, expansion_factor=2):
+        self.nci = nci
+        self.projection = projection
+        self.expansion_factor = expansion_factor
+        x, y = self.projection.pyproj(*nci.get_lonlat())
+        xlim = self.get_dim_extent(xy1, 0)
+        ylim = self.get_dim_extent(xy1, 1)
+        self.x, j0, j1 = self.reduce_range(x[0], *xlim)
+        self.y, i0, i1 = self.reduce_range(y[:,0].flatten(), *ylim)
+        self.ij_range = [i0, i1+1, j0, j1+1]
+
+    def get_dim_extent(self, xy1, i):
+        av = np.mean(xy1[i])
+        rng = xy1[i].max() - xy1[i].min()
+        return (
+                av - .5*self.expansion_factor*rng,
+                av + .5*self.expansion_factor*rng,
+                )
+
+    @staticmethod
     def reduce_range(a, amin, amax):
         gpi = (a>=amin)*(a<=amax)
         a_ = a[gpi]
@@ -55,65 +66,85 @@ def match_files(nci, xy1, xy2):
         amax_ = a_.max()
         lst = list(a)
         return a_, lst.index(amin_), lst.index(amax_)
-    x, j0, j1 = reduce_range(x, xmin, xmax)
-    y, i0, i1 = reduce_range(y, ymin, ymax)
-    return x, y, [i0, i1+1, j0, j1+1]
 
-def time_iterator(nci, dto1, dto2):
+    def time_iterator(self, dto1, dto2):
 
-    # default time resolution
-    dt_ref = nci.datetimes[1] - nci.datetimes[0]
+        # default time resolution
+        dt_ref = self.nci.datetimes[1] - self.nci.datetimes[0]
+        lbnds = np.array(self.nci.datetimes) - .5*dt_ref # lower bounds for averaging window
+        ubnds = lbnds + dt_ref                      # upper bounds for averaging window
+        dt_ref = dt_ref.total_seconds()
 
-    # 1st time step info
-    dto1_, time_index1 = nci.nearestDate(dto1)
-    if dto1_ - .5*dt_ref < dto1:
-        time_index1 -= 1
-        dto1_ = nci.datetimes[time_index1]
-    dt1 = (dto1_ + .5*dt_ref - dto1).total_seconds()
+        # 1st time step info
+        # - find last interval where dto1 >= the lower bound
+        # - integrate until the next lower bound
+        time_index1 = [dto1 >=  b for b in lbnds].index(False) - 1 # last True
+        u = ubnds[time_index1]
+        dt1 = (np.min([u, dto2]) - dto1).total_seconds()
 
-    # last time step info
-    dto2_, time_index2 = nci.nearestDate(dto2)
-    if dto2_ + .5*dt_ref > dto2:
-        time_index2 += 1
-        dto2_ = nci.datetimes[time_index2]
-    dt2 = (dto2 - dto2_ + .5*dt_ref).total_seconds()
+        # Yield the 1st time index and integration time
+        # - may not need any more
+        yield time_index1, dt1
 
-    # Yield the 1st time index and integration time
-    yield time_index1, dt1
-    for time_index in range(time_index1+1, time_index2):
-        # Yield the intermediary time indices and integration times
-        yield time_index, dt_ref.total_seconds()
-    # Yield the last time index and integration time
-    yield time_index2, dt2
+        if u < dto2:
+            # last time step info
+            time_index2 = [dto2 >  b for b in lbnds].index(False) - 1 #want last True
+            dt2 = (dto2 - lbnds[time_index2]).total_seconds()
 
-def get_interpolators(time_index, nci, x, y, ij_range):
-    siu = nci.get_var(
-            'siu', ij_range=ij_range, time_index=time_index).values
-    siv = nci.get_var(
-            'siv', ij_range=ij_range, time_index=time_index).values
-    return [RegularGridInterpolator([y, x], a,
-            bounds_error=False, fill_value=np.nan)
-            for a in [siu, siv]]
+            for time_index in range(time_index1+1, time_index2):
+                # Yield the intermediary time indices and integration times (if any)
+                yield time_index, dt_ref
 
-def integrate_one_time_step(x0, y0, dt, *args):
-    dst_p = np.array([y0, x0]).T
-    rgi_uv = get_interpolators(*args)
-    u0, v0 = np.array([rgi(dst_p) for rgi in rgi_uv])
-    return x0 + u0*dt, y0 + v0*dt
+            # Yield the last time index and integration time
+            yield time_index2, dt2
 
-def integrate_velocities(x0, y0, dto1, dto2,
-        nci, xy_info):
+    def load_vars(self, time_index):
+        data = dict()
+        # load conc and u,v
+        for vname in ['sic', 'siu', 'siv']:
+            data[vname] = self.nci.get_var(
+                    vname, ij_range=self.ij_range, time_index=time_index,
+                    ).values.filled(np.nan)
+        # mask open water in u,v
+        mask = data['sic'] < .15
+        for vname in ['siu', 'siv']:
+            data[vname][mask] = np.nan
+        return data
 
-    x = np.array(x0)
-    y = np.array(y0)
-    dt_tot = 0
-    for i, dt_i in time_iterator(nci, dto1, dto2):
-        x, y = integrate_one_time_step(
-                x, y, dt_i, i, nci, *xy_info)
-        dt_tot += dt_i
-        print(i, np.any(np.isnan(x*y)))
-    assert(dt_tot == (dto2-dto1).total_seconds())
-    return (x, y), dt_tot
+    def get_interpolated_vars(self, data, dst_p):
+        src_p = [self.y, self.x]
+        for vname in ['siu', 'siv']:
+            rgi = RegularGridInterpolator(src_p, data[vname],
+                    bounds_error=False, fill_value=np.nan)
+            data[vname] = rgi(dst_p)
+        return data
+
+    def integrate_one_time_step(self, x0, y0, dt, data):
+        dst_p = np.array([y0, x0]).T
+        data = self.get_interpolated_vars(data, dst_p)
+        return x0 + data['siu']*dt, y0 + data['siv']*dt
+
+    def integrate_velocities(self, x0, y0, dto1, dto2):
+        x = [np.array(x0)]
+        y = [np.array(y0)]
+        dtimes = [dto1]
+        time_indices = []
+        sic_av = 0
+        for i, dt_i in self.time_iterator(dto1, dto2):
+            data = self.load_vars(i)
+            sic_av += data['sic']
+            xi, yi = self.integrate_one_time_step(x[-1], y[-1], dt_i, data)
+            x += [xi]
+            y += [yi]
+            dtimes += [dtimes[-1] + dt.timedelta(seconds=dt_i)]
+            time_indices += [i]
+        assert(dtimes[-1] == dto2)
+        sic_av /= len(time_indices)
+        return np.array(x).T, np.array(y).T, dtimes, time_indices, sic_av
+
+    def get_grid(self):
+        return Grid(*np.meshgrid(self.x, self.y),
+                projection=self.projection)
 
 def compare(xy1, xy2, xy2_mod, dt_tot):
     fac = 24*3600*1e-3 #m/s to km/day
@@ -133,12 +164,11 @@ def compare(xy1, xy2, xy2_mod, dt_tot):
     print(f'VMRSE = {vrmse} km/day')
 
 def run():
-    args = parse_args()
+    args = get_arg_parser().parse_args()
     dto1, dto2, pm_results, xy1, xy2 = read_rs2_file(args.rs2_file) 
     nci = mnu.nc_getinfo(args.moorings_file)
-    xy_info = match_files(nci, xy1, xy2)
-    xy2_ns, dt_tot = integrate_velocities(
-            *xy1, dto1, dto2, nci, xy_info)
+    tg = TrajectoryGenerator(nci, NS_PROJ, xy1, xy2)
+    xy2_ns, dt_tot = tg.integrate_velocities(*xy1, dto1, dto2)
     compare(xy1, xy2, xy2_ns, dt_tot)
 
 if __name__ == '__main__':
