@@ -86,7 +86,6 @@ def get_nansat(filename, show=False):
 
     # replace zeros in low values (not near border)
     img = n02[band_id]
-    #img = median_filter(img, 2)
     img[100:-100, 100:-100] = np.clip(img[100:-100, 100:-100], 1, 255)
     if show:
         (vmin,), (vmax,) = Figure(img).clim_from_histogram(ratio=.9)
@@ -96,19 +95,7 @@ def get_nansat(filename, show=False):
         ax.set_title('Original')
 
     # create new Nansat with one band only
-    # - without spatial mean removed for pattern matching
-    n03 = get_fixed_n(n02, img, time_coverage_start)
-
-    # for plotting, nicer to have spatial mean removed
-    img -= get_spatial_mean(img).astype('uint8')
-    n04 = get_fixed_n(n02, img, time_coverage_start)
-    if show:
-        ax = fig.add_subplot(122)
-        ax.imshow(img, cmap='gray')
-        ax.set_title('Mean removed')
-        plt.show()
-
-    return n03, n04
+    return get_fixed_n(n02, img, time_coverage_start)
 
 def get_domain_extent(n1, n2, resolution=5e3, buffer=50e3):
     geo1 = n1.get_border_geometry()
@@ -303,14 +290,14 @@ def get_projected_hh(n, dom):
     n.undo()
     return hh
 
-def plot_ft(args, index, n1plot, n2plot, c1, r1, c2, r2):
-    lon1b, lat1b = n1plot.get_border()
-    lon2b, lat2b = n2plot.get_border()
+def plot_ft(args, index, n1, n2, c1, r1, c2, r2):
+    lon1b, lat1b = n1.get_border()
+    lon2b, lat2b = n2.get_border()
     x1b, y1b = NS_PROJ(lon1b, lat1b)
     x2b, y2b = NS_PROJ(lon2b, lat2b)
     # convert row/column coordinates of matched features to lon/lat
-    lon1ft, lat1ft = n1plot.transform_points(c1, r1)
-    lon2ft, lat2ft = n2plot.transform_points(c2, r2)
+    lon1ft, lat1ft = n1.transform_points(c1, r1)
+    lon2ft, lat2ft = n2.transform_points(c2, r2)
     # plot keypoints
     fig = plt.figure(figsize=(10,10))
     ax = plt.axes(projection=ccrs.NorthPolarStereo(central_longitude=-45, true_scale_latitude=70))
@@ -321,12 +308,12 @@ def plot_ft(args, index, n1plot, n2plot, c1, r1, c2, r2):
     ax.plot(lon2b, lat2b, '.-', label='border_2', transform=ccrs.PlateCarree())
     ax.legend()
     t = Template('ft_keypoints/ft_keypoints_${dto1}-${dto2}_${index}.png')
-    save_fig(args, fig, t, index, n1plot, n2plot)
+    save_fig(args, fig, t, index, n1, n2)
 
-def plot_pm(args, index, n1plot, n2plot,
+def plot_pm(args, index, n1, n2,
         lon1pm, lat1pm, upm, vpm, apm, rpm, hpm, **kwargs):
     # compute ice drift speed [m/s]
-    delta_t = (n2plot.time_coverage_start - n1plot.time_coverage_start).total_seconds()
+    delta_t = (n2.time_coverage_start - n1.time_coverage_start).total_seconds()
     u = upm / delta_t
     v = vpm / delta_t
     # start points in stereoprojection
@@ -347,7 +334,7 @@ def plot_pm(args, index, n1plot, n2plot,
     ax.set_title('x velocity, m/s')
     fig.colorbar(im, shrink=.4)
     t = Template('pm_quality/pm_quality_${dto1}-${dto2}_${index}.png')
-    save_fig(args, fig, t, index, n1plot, n2plot)
+    save_fig(args, fig, t, index, n1, n2)
 
     # plot final drift on image 1
     res = 1e3 #m
@@ -363,8 +350,8 @@ def plot_pm(args, index, n1plot, n2plot,
     d = Domain(NS_SRS, '-te %f %f %f %f -tr %f %f' % (
         xmin, ymin, xmax, ymax, res, res))
     d_extent = [xmin, xmax, ymin, ymax]
-    (vmin,), (vmax,) = Figure(n1plot[1]).clim_from_histogram(ratio=.9)
-    hh = get_projected_hh(n1plot, d)
+    (vmin,), (vmax,) = Figure(n1[1]).clim_from_histogram(ratio=.9)
+    hh = get_projected_hh(n1, d)
     hh = np.ma.array(
             median_filter(hh.data, 3), mask=hh.mask)
 
@@ -389,7 +376,7 @@ def plot_pm(args, index, n1plot, n2plot,
     ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
     ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
     t = Template('pm_quiver/pm_quiver_${dto1}-${dto2}_${index}.png')
-    save_fig(args, fig, t, index, n1plot, n2plot)
+    save_fig(args, fig, t, index, n1, n2)
 
     # deformation
     e1, e2, e3, tri_a, tri_p, triangles = get_deformation_nodes(x1pm[gpi], y1pm[gpi], u[gpi], v[gpi])
@@ -425,13 +412,13 @@ def plot_pm(args, index, n1plot, n2plot,
             draw_labels=True, alpha=0.5, linestyle=':')
         ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
         ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
-        save_fig(args, fig, t, index, n1plot, n2plot)
+        save_fig(args, fig, t, index, n1, n2)
 
-def plot_pm_clean(args, index, n1plot, n2plot,
+def plot_pm_clean(args, index, n1, n2,
         lon1pm, lat1pm, upm, vpm, apm, rpm, hpm,
         upm_clean, vpm_clean, **kwargs):
     # compute ice drift speed [m/s]
-    delta_t = (n2plot.time_coverage_start - n1plot.time_coverage_start).total_seconds()
+    delta_t = (n2.time_coverage_start - n1.time_coverage_start).total_seconds()
     u = upm / delta_t
     v = vpm / delta_t
     u2 = upm_clean / delta_t
@@ -452,7 +439,7 @@ def plot_pm_clean(args, index, n1plot, n2plot,
     fig.colorbar(im, shrink=.4)
 
     t = Template('clean-u/u_${dto1}-${dto2}_${index}.png')
-    save_fig(args, fig, t, index, n1plot, n2plot)
+    save_fig(args, fig, t, index, n1, n2)
 
     # plot final drift on image 1
     res = 1000 #m
@@ -468,8 +455,8 @@ def plot_pm_clean(args, index, n1plot, n2plot,
     d = Domain(NS_SRS, '-te %f %f %f %f -tr %f %f' % (
         xmin, ymin, xmax, ymax, res, res))
     d_extent = [xmin, xmax, ymin, ymax]
-    (vmin,), (vmax,) = Figure(n1plot[1]).clim_from_histogram(ratio=.9)
-    hh = get_projected_hh(n1plot, d)
+    (vmin,), (vmax,) = Figure(n1[1]).clim_from_histogram(ratio=.9)
+    hh = get_projected_hh(n1, d)
     hh = np.ma.array(
             median_filter(hh.data, 3), mask=hh.mask)
 
@@ -494,7 +481,7 @@ def plot_pm_clean(args, index, n1plot, n2plot,
     ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
     ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
     t = Template('clean-quiver/quiver_${dto1}-${dto2}_${index}.png')
-    save_fig(args, fig, t, index, n1plot, n2plot)
+    save_fig(args, fig, t, index, n1, n2)
 
     # deformation
     e1, e2, e3, tri_a, tri_p, triangles = get_deformation_nodes(x1pm[gpi], y1pm[gpi], u2[gpi], v2[gpi])
@@ -531,23 +518,23 @@ def plot_pm_clean(args, index, n1plot, n2plot,
             draw_labels=True, alpha=0.5, linestyle=':')
         ax.xaxis.set_major_formatter(LATITUDE_FORMATTER)
         ax.yaxis.set_major_formatter(LONGITUDE_FORMATTER)
-        save_fig(args, fig, t, index, n1plot, n2plot)
+        save_fig(args, fig, t, index, n1, n2)
 
 def process_1pair(args, f1, f2, index):
     # create Nansat objects with one band only. 
-    n1pm, n1plot = get_nansat(f1)#, show=args.test)
-    n2pm, n2plot = get_nansat(f2)#, show=args.test)
-    print(f'1st image start: {n1pm.time_coverage_start}')
-    print(f'2nd image start: {n2pm.time_coverage_start}')
+    n1 = get_nansat(f1)
+    n2 = get_nansat(f2)
+    print(f'1st image start: {n1.time_coverage_start}')
+    print(f'2nd image start: {n2.time_coverage_start}')
 
     # Fake feature tracking to get more starting points for pattern matching
-    c1, r1, c2, r2 = fake_feature_tracking(n1pm, n2pm)
-    plot_ft(args, index, n1plot, n2plot, c1, r1, c2, r2)
+    c1, r1, c2, r2 = fake_feature_tracking(n1, n2)
+    plot_ft(args, index, n1, n2, c1, r1, c2, r2)
 
     # Domain for pattern matching
     res = 5e3
     xmin, xmax, ymin, ymax = get_domain_extent(
-            n1pm, n2pm, resolution=res, buffer=25e3)
+            n1, n2, resolution=res, buffer=25e3)
     dst_dom = Domain(NS_SRS,
         '-te %d %d %d %d -tr %d %d' %
         (xmin, ymin, xmax, ymax, res, res))
@@ -557,7 +544,7 @@ def process_1pair(args, f1, f2, index):
     # Pattern matching
     # lon/lat grids for image_1
     t = Template('npz_files/pm_${dto1}-${dto2}_${index}.npz')
-    pm_results = load_npz(args, t, index, n1pm, n2pm)
+    pm_results = load_npz(args, t, index, n1, n2)
     if pm_results is None:
         print('Running pattern matching...')
         pm_results = dict(lon1pm=lon1pm, lat1pm=lat1pm)
@@ -568,7 +555,7 @@ def process_1pair(args, f1, f2, index):
                 pm_results['apm'], pm_results['rpm'], pm_results['hpm'],
                 pm_results['lon2pm'], pm_results['lat2pm'],
                 ) = pattern_matching(
-                        lon1pm, lat1pm, n1pm, c1, r1, n2pm, c2, r2,
+                        lon1pm, lat1pm, n1, c1, r1, n2, c2, r2,
                         min_border=500, max_border=500,
                         srs=NS_SRS, img_size=71,
                         angles=[-10, -5, 0, 5, 10],
@@ -578,19 +565,19 @@ def process_1pair(args, f1, f2, index):
                 pm_results['upm'], pm_results['rpm'], pm_results['hpm'])
         pm_results['vpm_clean'] = clean_velo_field(args,
                 pm_results['vpm'], pm_results['rpm'], pm_results['hpm'])
-        save_npz(args, t, index, n1pm, n2pm, **pm_results)
+        save_npz(args, t, index, n1, n2, **pm_results)
 
     # count the number of drift vectors
     gpi = np.isfinite(pm_results['upm_clean'] * pm_results['vpm_clean'])
     print(f'Detected {np.sum(gpi)} good drift vectors')
 
     # diagnostic plots
-    plot_pm(args, index, n1pm, n2pm, **pm_results)
-    plot_pm_clean(args, index, n1pm, n2pm, **pm_results)
+    plot_pm(args, index, n1, n2, **pm_results)
+    plot_pm_clean(args, index, n1, n2, **pm_results)
 
     # Save images at higher resolution for later plotting
     t = Template('npz_files/hh_${dto1}-${dto2}_${index}.npz')
-    fname = get_filename(args, t, index, n1plot, n2plot)
+    fname = get_filename(args, t, index, n1, n2)
     if not os.path.exists(fname):
         print('Generating plot data...')
         res = 1e3
@@ -598,8 +585,8 @@ def process_1pair(args, f1, f2, index):
         dom = Domain(NS_SRS, ext)
         plot_data = dict()
         plot_data['lon_plot'], plot_data['lat_plot'] = dom.get_geolocation_grids()
-        plot_data['hh1'] = get_projected_hh(n1pm, dom)
-        plot_data['hh2'] = get_projected_hh(n2pm, dom)
+        plot_data['hh1'] = get_projected_hh(n1, dom)
+        plot_data['hh2'] = get_projected_hh(n2, dom)
         print(f'Saving {fname}')
         np.savez(fname, **plot_data)
 
