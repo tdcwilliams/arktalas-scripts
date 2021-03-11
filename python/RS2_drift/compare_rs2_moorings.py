@@ -3,6 +3,7 @@ import os
 from argparse import ArgumentParser
 import numpy as np
 import datetime as dt
+from matplotlib import pyplot as plt
 
 from scipy.interpolate import RegularGridInterpolator
 
@@ -14,9 +15,12 @@ NS_PROJ = ProjectionInfo()
 
 def get_arg_parser():
     p = ArgumentParser('Script to compare moorings with RS2-derived drift')
-    p.add_argument('rs2_file', help='path to npz file with pattern matching')
+    p.add_argument('rs2_dir',
+            help='path to directory with npz files from pattern matching')
     p.add_argument('moorings_file', help='path to moorings file')
     p.add_argument('outdir', help='Where to save results')
+    p.add_argument('test', action='store_true',
+            help='Test script on 1 file only')
     return p
 
 def read_rs2_file(rs2_file):
@@ -146,58 +150,101 @@ class TrajectoryGenerator:
         return Grid(*np.meshgrid(self.x, self.y),
                 projection=self.projection)
 
-def compare(dx_obs, dy_obs, dx_mod, dy_mod, dt_tot):
+def savefig(fig, filename):
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    print(f'Saving {filename}')
+    fig.savefig(filename, bbox_inches='tight')
+    plt.close()
+
+def save_npz(filename, **kwargs):
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    print(f'Saving {filename}')
+    np.savez(filename, **kwargs)
+
+def load_npz(args, filename):
+    if os.path.exists(filename) and not args.force:
+        print(f'Loading {filename}')
+        return dict(np.load(filename))
+
+def compare(dx_obs, dy_obs, dx_mod, dy_mod, delta_t, **kwargs):
     unit_fac = 24*3600*1e-3 #m/s to km/day
+    errors = dict()
     # bias in speed
-    spd_obs = unit_fac*np.hypot(dx_obs, dy_obs)/dt_tot
-    spd_mod = unit_fac*np.hypot(dx_mod, dy_mod)/dt_tot
-    bias_speed = np.nanmean(spd_mod - spd_obs)
-    print(f'Bias in speed = {bias_speed} km/day')
+    spd_obs = unit_fac*np.hypot(dx_obs, dy_obs)/delta_t
+    spd_mod = unit_fac*np.hypot(dx_mod, dy_mod)/delta_t
+    errors['bias_speed'] = np.nanmean(spd_mod - spd_obs)
+    print(f"Bias in speed = {errors['bias_speed']} km/day")
     # RMSE in speed
-    rmse_speed = np.sqrt(np.nanmean((spd_mod - spd_obs)**2))
-    print(f'RMSE in speed = {rmse_speed} km/day')
+    errors['rmse_speed'] = np.sqrt(np.nanmean((spd_mod - spd_obs)**2))
+    print(f"RMSE in speed = {errors['rmse_speed']} km/day")
     # Vector RMSE
-    vdiff = unit_fac*np.hypot(dx_mod - dx_obs, dy_mod - dy_obs)/dt_tot
-    vrmse = np.sqrt(np.nanmean(vdiff**2))
-    print(f'VMRSE = {vrmse} km/day')
-    return bias_speed, rmse_speed, vrmse
+    vdiff = unit_fac*np.hypot(dx_mod - dx_obs, dy_mod - dy_obs)/delta_t
+    errors['vrmse'] = np.sqrt(np.nanmean(vdiff**2))
+    print(f"VMRSE = {errors['vrmse']} km/day")
+    return errors
 
-def run():
-    args = get_arg_parser().parse_args()
+def process_1file(args, rs2_file):
 
+    results = dict()
     # read RS2 results
-    dto1, dto2, pm_results, xy1, gpi_rs2 = read_rs2_file(args.rs2_file) 
-    dx_obs = pm_results['upm_clean'][gpi_rs2]
-    dy_obs = pm_results['vpm_clean'][gpi_rs2]
+    dto1, dto2, pm_results, xy1, gpi_rs2 = read_rs2_file(rs2_file) 
+    results['dx_obs'] = pm_results['upm_clean'][gpi_rs2]
+    results['dy_obs'] = pm_results['vpm_clean'][gpi_rs2]
+    results['x_obs'], results['y_obs'] = xy1
+    results['delta_t'] = (dto2 -dto1).total_seconds()
 
     # process neXtSIM results
     nci = mnu.nc_getinfo(args.moorings_file)
     tg = TrajectoryGenerator(nci, NS_PROJ, xy1, expansion_factor=1.4)
-    (xt, yt, dtimes, time_indices, sic_av,
+    (xt, yt, dtimes, time_indices, results['sic_av'],
             ) = tg.integrate_velocities(*xy1, dto1, dto2)
-    dx_mod = xt[:,-1] - xt[:,0]
-    dy_mod = yt[:,-1] - yt[:,0]
-    delta_t = (dto2 -dto1).total_seconds()
+    results['dx_mod'] = xt[:,-1] - xt[:,0]
+    results['dy_mod'] = yt[:,-1] - yt[:,0]
 
     # compare mean differences
-    bias_speed, rmse_speed, vrmse = compare(
-            dx_mod, dy_mod, dx_obs, dy_obs, delta_t)
+    errors = compare(**results)
+
+    # save results
+    base = os.path.basename(rs2_file).replace('pm', 'comp_moorings')
+    npz_file = os.path.join(args.outdir, base)
+    save_npz(npz_file, **results, **errors)
 
     # plot
+    plot(args, rs2_file, tg, **results)
+
+    return errors
+
+def plot(args, rs2_file, tg, x_obs, y_obs, dx_obs, dy_obs,
+        dx_mod, dy_mod, sic_av, **kwargs):
     grid = tg.get_grid()
     fig, ax = grid.plot(sic_av, clabel='neXtSIM concentration')
-    ax.quiver(*xy1, dx_obs, dy_obs,
+    s = slice(None, None, 2) #plot every 2nd vector
+    ax.quiver(x_obs[s], y_obs[s], dx_obs[s], dy_obs[s],
             color='r', units='xy', scale=.5, label='RS2')
-    ax.quiver(*xy1, dx_mod, dy_mod,
+    ax.quiver(x_obs[s], y_obs[s], dx_mod[s], dy_mod[s],
             color='g', units='xy', scale=.5, label='NS')
     ax.legend()
     os.makedirs(args.outdir, exist_ok=True)
     figname = os.path.join(
         args.outdir,
-        os.path.basename(args.rs2_file).replace('npz', 'png')
+        os.path.basename(rs2_file).replace('npz', 'png')
         )
-    print(f'Saving {figname}')
-    fig.savefig(figname)
+    savefig(fig, figname)
+
+def run():
+    args = get_arg_parser().parse_args()
+    if args.test:
+        # if testing just run 1 example
+        rs2_file = os.path.join(args.rs2_dir,
+                'pm_20130224T023841Z-20130225T020927Z_21.npz')
+        process_1file(args, rs2_file)
+        return
+
+    for rs2_file in glob.glob(pattern):
+        try:
+            errors_i = process_1pair(rs2_file)
+        except:
+            continue
 
 
 if __name__ == '__main__':
