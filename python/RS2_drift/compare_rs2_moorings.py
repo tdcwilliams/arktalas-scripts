@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 import os
+import glob
 from argparse import ArgumentParser
 import numpy as np
 import datetime as dt
@@ -252,9 +253,11 @@ def run():
         process_1file(args, rs2_file)
         return
 
-    for rs2_file in glob.glob(pattern):
+    pattern = os.path.join(os.path.abspath(args.rs2_dir), 'pm_*.npz')
+    for rs2_file in sorted(glob.glob(pattern)):
+        print(f'Processing {rs2_file}')
         try:
-            errors_i = process_1pair(rs2_file)
+            errors_i = process_1file(args, rs2_file)
         except:
             continue
 
