@@ -19,8 +19,10 @@ def get_arg_parser():
             help='path to directory with npz files from pattern matching')
     p.add_argument('moorings_file', help='path to moorings file')
     p.add_argument('outdir', help='Where to save results')
-    p.add_argument('test', action='store_true',
+    p.add_argument('-t', '--test', action='store_true',
             help='Test script on 1 file only')
+    p.add_argument('-f', '--force', action='store_true',
+            help='Overwrite results')
     return p
 
 def read_rs2_file(rs2_file):
@@ -150,7 +152,7 @@ class TrajectoryGenerator:
         return Grid(*np.meshgrid(self.x, self.y),
                 projection=self.projection)
 
-def savefig(fig, filename):
+def save_fig(fig, filename):
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     print(f'Saving {filename}')
     fig.savefig(filename, bbox_inches='tight')
@@ -185,38 +187,48 @@ def compare(dx_obs, dy_obs, dx_mod, dy_mod, delta_t, **kwargs):
 
 def process_1file(args, rs2_file):
 
-    results = dict()
-    # read RS2 results
-    dto1, dto2, pm_results, xy1, gpi_rs2 = read_rs2_file(rs2_file) 
-    results['dx_obs'] = pm_results['upm_clean'][gpi_rs2]
-    results['dy_obs'] = pm_results['vpm_clean'][gpi_rs2]
-    results['x_obs'], results['y_obs'] = xy1
-    results['delta_t'] = (dto2 -dto1).total_seconds()
-
-    # process neXtSIM results
-    nci = mnu.nc_getinfo(args.moorings_file)
-    tg = TrajectoryGenerator(nci, NS_PROJ, xy1, expansion_factor=1.4)
-    (xt, yt, dtimes, time_indices, results['sic_av'],
-            ) = tg.integrate_velocities(*xy1, dto1, dto2)
-    results['dx_mod'] = xt[:,-1] - xt[:,0]
-    results['dy_mod'] = yt[:,-1] - yt[:,0]
-
-    # compare mean differences
-    errors = compare(**results)
-
-    # save results
     base = os.path.basename(rs2_file).replace('pm', 'comp_moorings')
     npz_file = os.path.join(args.outdir, base)
-    save_npz(npz_file, **results, **errors)
+
+    # try to load results from file
+    # - otherwise create them
+    results = load_npz(args, npz_file)
+    if results is not None:
+        errors = dict()
+        for k in ['bias_speed', 'rmse_speed', 'vrmse']:
+            errors[k] = results.pop(k)
+    else:
+        results = dict()
+        # read RS2 results
+        dto1, dto2, pm_results, xy1, gpi_rs2 = read_rs2_file(rs2_file) 
+        results['dx_obs'] = pm_results['upm_clean'][gpi_rs2]
+        results['dy_obs'] = pm_results['vpm_clean'][gpi_rs2]
+        results['x_obs'], results['y_obs'] = xy1
+        results['delta_t'] = (dto2 -dto1).total_seconds()
+
+        # process neXtSIM results
+        nci = mnu.nc_getinfo(args.moorings_file)
+        tg = TrajectoryGenerator(nci, NS_PROJ, xy1, expansion_factor=1.4)
+        (xt, yt, dtimes, time_indices, results['sic_av'],
+                ) = tg.integrate_velocities(*xy1, dto1, dto2)
+        results['dx_mod'] = xt[:,-1] - xt[:,0]
+        results['dy_mod'] = yt[:,-1] - yt[:,0]
+
+        # compare mean differences
+        errors = compare(**results)
+
+        # save results
+        results['x_grid'], results['y_grid'] = tg.get_grid().xy
+        save_npz(npz_file, **results, **errors)
 
     # plot
-    plot(args, rs2_file, tg, **results)
+    plot(args, rs2_file, **results)
 
     return errors
 
-def plot(args, rs2_file, tg, x_obs, y_obs, dx_obs, dy_obs,
-        dx_mod, dy_mod, sic_av, **kwargs):
-    grid = tg.get_grid()
+def plot(args, rs2_file, x_obs, y_obs, dx_obs, dy_obs,
+        dx_mod, dy_mod, x_grid, y_grid, sic_av, **kwargs):
+    grid = Grid(x_grid, y_grid)
     fig, ax = grid.plot(sic_av, clabel='neXtSIM concentration')
     s = slice(None, None, 2) #plot every 2nd vector
     ax.quiver(x_obs[s], y_obs[s], dx_obs[s], dy_obs[s],
@@ -229,7 +241,7 @@ def plot(args, rs2_file, tg, x_obs, y_obs, dx_obs, dy_obs,
         args.outdir,
         os.path.basename(rs2_file).replace('npz', 'png')
         )
-    savefig(fig, figname)
+    save_fig(fig, figname)
 
 def run():
     args = get_arg_parser().parse_args()
