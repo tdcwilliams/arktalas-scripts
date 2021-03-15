@@ -13,6 +13,5 @@
 
 cd $SLURM_SUBMIT_DIR
 source %%{env_file}
-singularity exec --cleanenv $NEXTSIM_SIF \
-    mpirun tmp/nextsim.exec --config-files=inputs/nextsim.cfg \
+mpirun tmp/nextsim.exec --config-files=inputs/nextsim.cfg \
     &> "logs/nextsim.${SLURM_JOB_ID}.log" || exit 1
