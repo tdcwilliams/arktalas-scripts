@@ -112,6 +112,9 @@ class EvalPDF(Document):
             if len(figs) == nrows:
                 self.add_figs_to_page(figs)
                 figs = []
+        if len(figs) > 0:
+            self.add_figs_to_page(figs)
+        self.append(NewPage())
 
     def append_preamble(self):
         for cmd in [
