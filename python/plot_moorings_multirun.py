@@ -7,18 +7,20 @@ from subprocess import run
 import cmocean
 
 _PLOT_INFO = dict(
-        #rls = ('Upward longwave flux, W/m$^2$', 'rls_%Y%m%dT%H%M%SZ.png', 'viridis', [0,150]),
-        #sit = ('Thickness, m', 'sit_%Y%m%dT%H%M%SZ.png', 'viridis', [0,3]),
-        #sic = ('Concentration', 'sic_%Y%m%dT%H%M%SZ.png', cmocean.cm.ice, [0,1]),
+        rls = ('Upward longwave flux, W/m$^2$', 'rls_%Y%m%dT%H%M%SZ.png', 'viridis', [0,150]),
+        sit = ('Thickness, m', 'sit_%Y%m%dT%H%M%SZ.png', 'viridis', [0,3]),
+        sic = ('Concentration', 'sic_%Y%m%dT%H%M%SZ.png', cmocean.cm.ice, [0,1]),
         wspeed = ('Wind speed, m/s', 'wspeed_%Y%m%dT%H%M%SZ.png', 'viridis', [0,10]),
         )
-rootdir_5km = '/cluster/work/users/timill/nextsim-stand-alone/wrf_arctic_5km'
-rootdir_10km = '/cluster/work/users/timill/nextsim-stand-alone/wrf_arctic_10km/breakup-paper'
+rootdir_5km = '/cluster/work/users/timill/nextsim-stand-alone/wrf_arctic_5km/breakup_2013'
+rootdir_10km = '/cluster/work/users/timill/nextsim-stand-alone/wrf_arctic_10km/breakup_2013'
 _RUNS = [
+        #('WRF 40km', f'{rootdir_10km}/expt_05_wrf_40km/outputs', 'figs/wrf_10km/wrf_40km'),
+        ('WRF 20km', f'{rootdir_10km}/expt_06_wrf_20km/outputs', 'figs/wrf_10km/wrf_20km'),
         #('WRF 10km', f'{rootdir_10km}/expt_00_wrf10km/outputs', 'figs/wrf_10km/wrf_10km'),
         #('WRF 10km (Cd=0.004)', f'{rootdir_10km}/expt_01_wrf10km_cd40/outputs', 'figs/wrf_10km/wrf_10km_cd4'),
-        ('ERA5', f'{rootdir_10km}/expt_02_era5/outputs', 'figs/wrf_10km/era5'),
-        ('CFSR', f'{rootdir_10km}/expt_03_cfsr/outputs', 'figs/wrf_10km/cfsr'),
+        #('ERA5', f'{rootdir_10km}/expt_02_era5/outputs', 'figs/wrf_10km/era5'),
+        #('CFSR', f'{rootdir_10km}/expt_03_cfsr/outputs', 'figs/wrf_10km/cfsr'),
         #('WRF 10km (5km mesh): Clab=1.5MPa, Pmax=10kPa',
         #    f'{rootdir_5km}/expt_01_wrf_10km-C1.5/outputs', 'figs/wrf_5km/wrf_10km-C1.5'),
         #('WRF 10km (5km mesh): Clab=1.5MPa, Pmax=5kPa',
