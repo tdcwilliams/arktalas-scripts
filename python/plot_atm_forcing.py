@@ -12,7 +12,7 @@ from pynextsim.nextsim_config import NextsimConfig
 from pynextsim.projection_info import ProjectionInfo
 import pynextsim.lib as nsl
 
-import mod_netcdf_utils as mnu
+import swarp_funs.mod_netcdf_utils as mnu
 
 PROJECTIONS = dict(
         wrf= ProjectionInfo(proj = 'stere', ecc = 0, a = 6370e3,
