@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /bin/bash -x
 set -e
 indir=/cluster/work/users/timill/wrf_downscaled
 mkdir -p $indir
