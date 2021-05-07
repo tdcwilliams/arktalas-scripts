@@ -54,7 +54,7 @@ class SmoothWRF:
         parser = argparse.ArgumentParser(description=cls.__doc__)
         parser.add_argument('input_file', type=str, help='File to be smoothed')
         parser.add_argument('output_file', type=str, help='Compressed file')
-        parser.add_argument('-sf', '--smoothing-factor', default=8, type=float,
+        parser.add_argument('-sf', '--smoothing-factor', default=8, type=int,
                 help='size of averaging kernel')
         return parser
 
@@ -83,7 +83,6 @@ class SmoothWRF:
             fld_smooth = fld.filled(0.)
         else:
             fld_smooth = np.array(fld) #copy
-        print(fld_smooth.shape)
         fld_smooth = convolve(fld_smooth, kernel, mode='nearest')
         if ma:
             fld_smooth = np.ma.array(fld_smooth, mask = fld.mask)
