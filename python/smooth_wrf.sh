@@ -10,7 +10,7 @@ fi
 
 for n in 4 8
 do
-    outdir=/cluster/work/users/timill/wrf_downscaled_smooothed_${n}0km/
+    outdir=/cluster/work/users/timill/wrf_downscaled_smoothed_${n}0km/
     mkdir -p $outdir
     rm -f $outdir/*
 
