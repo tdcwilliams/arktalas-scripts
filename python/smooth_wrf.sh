@@ -19,6 +19,7 @@ do
     do
         bname=$(basename $f)
         s=($(echo $bname | grep "LANDMASK")) || \
+            singularity exec --cleanenv $PYNEXTSIM_SIF \
             ./smooth_wrf.py $f $outdir/$bname -sf $n
     done
 done

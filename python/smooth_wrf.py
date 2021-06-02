@@ -59,7 +59,7 @@ class SmoothWRF:
         return parser
 
 
-    def get_smoothed_field(self, fld, aux=None):
+    def get_smoothed_field(self, fld):
         """
         smooth array with coarse graining (scipy.ndimage.convolve)
 
