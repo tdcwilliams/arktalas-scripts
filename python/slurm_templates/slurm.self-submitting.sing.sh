@@ -12,7 +12,7 @@
 #SBATCH --mail-user=%%{email}
 
 SPLIT_LENGTH=%%{split_length}
-source %%{env_file}
+source $HOME/pynextsim.sing.src
 
 function _read_duration {
     tmp=(`grep "duration=" inputs/nextsim.cfg`)
@@ -88,7 +88,8 @@ then
 fi
 
 # run the model
-mpirun -np $SLURM_NTASKS tmp/nextsim.exec \
+singularity exec --cleanenv $NEXTSIM_SIF \
+    mpirun -np $SLURM_NTASKS tmp/nextsim.exec \
     --config-files=inputs/nextsim.cfg ${ns_opts[@]} \
     &> "logs/nextsim.${SLURM_JOB_ID}.log" || exit 1
 

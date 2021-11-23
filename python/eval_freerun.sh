@@ -20,6 +20,7 @@ DO_PLOTS=${7-"0"}
 DO_SMOS=${8-"0"}
 DO_AMSR2=${9-"0"}
 numproc_sem=12
+single_eval=0 #change to 1 if want MONTHLY_EVAL=0 to have no date limits and make maps
 
 function run
 {
@@ -27,7 +28,7 @@ function run
 
     # if not on fram, launch normally
     #[[ "${HOSTNAME:10:14}" != "fram.sigma2.no" ]] && { $1; return; }
-    [[ "${HOSTNAME:10:14}" != "fram.sigma2.no" ]] && { sem -j $numproc_sem $1 & return; }
+    [[ "${HOSTNAME:$((${#HOSTNAME}-14)):14}" != "fram.sigma2.no" ]] && { sem -j $numproc_sem $1 & return; }
 
     # on fram, launch with sbatch
     mkdir -p logs
@@ -62,6 +63,7 @@ function do_standard_run
     outdir=$1
     [[ -z $outdir ]] && { echo "no output dir provided"; exit 1; }
     rm -f $outdir/*.txt $outdir/*.png #clean old time series files and figures
+    [[ $single_eval -eq 1 ]] && { run "$CMD -o $outdir"; return; }
     for lim in "${LIMS[@]}"
     do
         run "$CMD $lim -o $outdir -nm"

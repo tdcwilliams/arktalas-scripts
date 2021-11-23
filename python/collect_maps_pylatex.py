@@ -31,6 +31,8 @@ from pylatex import (
 from pylatex.math import Math
 from pylatex.utils import bold, NoEscape
 
+import pynextsim.lib as nsl
+
 _GEOMETRY_OPTIONS = {
     "head": "40pt",
     "margin": "0.5in",
@@ -54,11 +56,11 @@ def parse_args():
 class EvalPDF(Document):
     def __init__(self, root_dir, **kwargs):
         super().__init__(**kwargs)
-        self.root_dir = os.path.abspath(root_dir)
+        self.root_dir = nsl.clean_path(os.path.abspath(root_dir))
         #add something to distinguish the name when comparing files in the same window of a PDF
         #reader
-        subdir = os.path.basename(root_dir)
-        self.pdf_file = os.path.join(root_dir, f'collected_maps_{subdir}')
+        subdir = os.path.basename(self.root_dir)
+        self.pdf_file = os.path.join(self.root_dir, f'collected_maps_{subdir}')
 
     def parse_filename(self, figname):
         name1, name2 = os.path.split(figname)[1].split('-')
@@ -110,6 +112,9 @@ class EvalPDF(Document):
             if len(figs) == nrows:
                 self.add_figs_to_page(figs)
                 figs = []
+        if len(figs) > 0:
+            self.add_figs_to_page(figs)
+        self.append(NewPage())
 
     def append_preamble(self):
         for cmd in [
