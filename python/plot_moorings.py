@@ -247,11 +247,12 @@ class PlotMoorings:
         while dto0 <= dto2:
             dto1 = dto0 + delt
             if mask_var_name is not None:
-                mask = self.average_data(nci, mask_var_name, dto0, dto1)
+                mask = self.average_data(nci, mask_var_name, dto0, dto1) == 0
             data = []
             for varname in varnames:
                 data += [self.average_data(nci, varname, dto0, dto1)]
-                data[-1][mask==0] = np.nan
+                if mask_var_name is not None:
+                    data[-1][mask] = np.nan
             yield dto0, dto1, data
             dto0 = dto1
 
@@ -389,16 +390,14 @@ class PlotMoorings:
     def plot_scalars(self):
         """ make all the scalar plots """
 
-        for plot_var in self.scalar_vars:
-            #scalar fields
-            varnames = plot_var[:1]
+        for varname, cmap, clim, clabel in self.scalar_vars:
             print(f'Making plots for {varname}')
             for dto0, dto1, v, in self.get_averaged_data(
-                    mnu.nc_getinfo(self.filename), varname):
+                    mnu.nc_getinfo(self.filename), [varname]):
                 if v is None:
                     continue
                 data = self.transform_data(v[0])
-                self.plot_scalar(data, *plot_var, dints=(dto0, dto1))
+                self.plot_scalar(data, varname, cmap, clim, clabel, dints=(dto0, dto1))
 
 
     def plot_vectors(self):
