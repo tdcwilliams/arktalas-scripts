@@ -115,10 +115,8 @@ class PlotMoorings:
 
         def split_string(v, vtype):
             sv = v.split()
-            if vtype == 'scalar_vars':
-                lst = [sv.pop(0)]
-            else:
-                lst = [sv.pop(0) for _ in range(2)]
+            nv = 4 if vtype == 'vector_vars' else 1
+            lst = [sv.pop(0) for _ in range(nv)] # [uname, vname, varname, mask_var_name] or [varname]
             cmap, vmin, vmax = sv[:3]
             clim = None
             if vmin != 'None' and vmax != 'None':
@@ -219,7 +217,7 @@ class PlotMoorings:
         return data.filled(np.nan)
 
 
-    def get_averaged_data(self, nci, varname):
+    def get_averaged_data(self, nci, varnames, mask_var_name=None):
         """
         Loop over the dates in the file, averaging over intervals of length self.avg_period_hours
 
@@ -248,7 +246,13 @@ class PlotMoorings:
             dto2 = self.date1
         while dto0 <= dto2:
             dto1 = dto0 + delt
-            yield dto0, dto1, self.average_data(nci, varname, dto0, dto1)
+            if mask_var_name is not None:
+                mask = self.average_data(nci, mask_var_name, dto0, dto1)
+            data = []
+            for varname in varnames:
+                data += [self.average_data(nci, varname, dto0, dto1)]
+                data[-1][mask==0] = np.nan
+            yield dto0, dto1, data
             dto0 = dto1
 
 
@@ -339,7 +343,7 @@ class PlotMoorings:
         self.finish_and_save_fig(ax, varname, dints=dints)
 
 
-    def plot_deformation(self, uv, dints):
+    def make_deformation_plots(self, uv, dints):
         '''
         Plot deformation
 
@@ -351,13 +355,13 @@ class PlotMoorings:
             dints = [d0, d1] with d0,d1 datetime.datetime objects
             marking the start and finish of the averaging window
         '''
-        u_x, v_x = [np.gradient(a, axis=1) for a in uv]
-        u_y, v_y = [np.gradient(a, axis=0) for a in uv]
-        clim = (0,10)
+        unit_fac = 100*24*3600 # convert from 1/s to %/day
+        u_x, v_x = [unit_fac*np.gradient(a, axis=1)/self.grid.dx for a in uv]
+        u_y, v_y = [unit_fac*np.gradient(a, axis=0)/self.grid.dy for a in uv]
         div = (u_x + v_y,
-                ('div', 'viridis', clim, r'Sea ice divergence, $\%\textrm{day}^{-1}$'))
+                'div', 'viridis', (0,5), 'Divergence, $\%$/day')
         shear = (np.hypot(u_x - v_y, u_y + v_x),
-                    ('shear', clim, r'Sea ice shear deformation, $\%\textrm{day}^{-1}$'))
+                    'shear', 'viridis', (0,15), r'Shear deformation, $\%$/day')
         for grad in [div, shear]:
             self.plot_scalar(*grad, dints=dints)
 
@@ -387,40 +391,30 @@ class PlotMoorings:
 
         for plot_var in self.scalar_vars:
             #scalar fields
-            varname = plot_var[0]
+            varnames = plot_var[:1]
             print(f'Making plots for {varname}')
-            for dto0, dto1, v in self.get_averaged_data(
+            for dto0, dto1, v, in self.get_averaged_data(
                     mnu.nc_getinfo(self.filename), varname):
                 if v is None:
                     continue
-                data = self.transform_data(v)
+                data = self.transform_data(v[0])
                 self.plot_scalar(data, *plot_var, dints=(dto0, dto1))
 
 
     def plot_vectors(self):
         """ make all the vector plots """
 
-        def get_varname(un, vn):
-            for i in range(len(un)):
-                if un[:i] == vn[:i]:
-                    lst = [un[:i], un[i:], vn[i:]]
-                else:
-                    break
-            return ''.join(lst)
-
-        for uname, vname, cmap, clim, clabel in self.vector_vars:
+        for uname, vname, varname, mask_var_name, cmap, clim, clabel in self.vector_vars:
             print(f'Making vector plots for ({uname},{vname})')
             nci = mnu.nc_getinfo(self.filename)
-            for (dto0, dto1, u), (_, _, v) in zip(
-                    self.get_averaged_data(nci, uname),
-                    self.get_averaged_data(nci, vname),
-                    ):
-                if u is None or v is None:
+            for dto0, dto1, uv in self.get_averaged_data(
+                    nci, (uname, vname), mask_var_name=mask_var_name):
+                if uv is None:
                     continue
-                data = [self.transform_data(a) for a in [u, v]]
-                self.plot_vector(data, get_varname(uname, vname), cmap, clim, clabel, (dto0, dto1))
+                data = [self.transform_data(a) for a in uv]
+                self.plot_vector(data, varname, cmap, clim, clabel, (dto0, dto1))
                 if uname == "siu" and self.plot_deformation:
-                    self.plot_deformation(data, (dto0, dto1))
+                    self.make_deformation_plots(data, (dto0, dto1))
 
 
     def run(self):
