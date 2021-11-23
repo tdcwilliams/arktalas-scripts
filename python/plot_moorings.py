@@ -324,9 +324,8 @@ class PlotMoorings:
         fig, ax = self.grid.plot(spd, cmap=cmap, clim=clim, clabel=clabel)
         ax.coastlines(resolution='50m')
 
-        # add some velocity vectors
-        np = np.max(self.grid.nx/self.dx, self.grid.ny/self.dy)
-        step = int(np.ceil(np/50)) # if more than 50 vectors, increase the step between them
+        # add some direction vectors
+        step = int(np.ceil(np.max(self.grid.shape)/50)) # if more than 50 vectors, increase the step between them
         x = self.grid.xy[0][::step,::step] 
         y = self.grid.xy[1][::step,::step]
         u = uv[0][::step,::step]
@@ -410,16 +409,16 @@ class PlotMoorings:
             return ''.join(lst)
 
         for uname, vname, cmap, clim, clabel in self.vector_vars:
-            print(f'Making vector plots for {varname}')
+            print(f'Making vector plots for ({uname},{vname})')
             nci = mnu.nc_getinfo(self.filename)
             for (dto0, dto1, u), (_, _, v) in zip(
                     self.get_averaged_data(nci, uname),
                     self.get_averaged_data(nci, vname),
                     ):
-                if u10 is None or v10 is None:
+                if u is None or v is None:
                     continue
                 data = [self.transform_data(a) for a in [u, v]]
-                self.plot_vector(data, varname, cmap, clim, clabel, (dto0, dto1))
+                self.plot_vector(data, get_varname(uname, vname), cmap, clim, clabel, (dto0, dto1))
                 if uname == "siu" and self.plot_deformation:
                     self.plot_deformation(data, (dto0, dto1))
 
